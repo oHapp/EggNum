@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv
+venv/
+
+# SQLite
+instance/
+*.db
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker (keep Dockerfile/docker-compose out of image only, not repo)
+# (these ARE tracked — remove if you want them gitignored)

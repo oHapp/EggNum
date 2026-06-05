@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}鸡蛋库存登记助手 — 历史记录{% endblock %}
+
+{% block header_title %}
+<a href="/" style="color:#fff;text-decoration:none;">← 返回</a>&nbsp;&nbsp;📜 历史记录
+{% endblock %}
+
+{% block content %}
+
+<!-- Batch edit toolbar (hidden by default) -->
+<div id="batch-toolbar" class="batch-toolbar" style="display:none;">
+  <span class="batch-toolbar__count">已选 <strong id="batch-count">0</strong> 项</span>
+  <button type="button" id="btn-batch-delete" class="btn-danger-sm">🗑 批量删除</button>
+  <button type="button" id="btn-batch-cancel" class="btn-cancel-sm">取消</button>
+</div>
+
+{% if date_groups %}
+  {% for group in date_groups %}
+  <div class="history-date-group">
+    <div class="history-date-heading">{{ group.date_display }}</div>
+    {% for record in group.records %}
+    <!-- Card wrapper: flex row for checkbox + main, detail below -->
+    <div class="history-card-wrapper">
+      <div class="history-card"
+           data-record-id="{{ record.id }}"
+           data-record-date="{{ record.record_date }}">
+        <!-- Checkbox for batch mode (hidden by default) -->
+        <div class="history-card__check" style="display:none;">
+          <input type="checkbox" class="batch-checkbox" data-id="{{ record.id }}">
+        </div>
+        <div class="history-card__main">
+          <div class="history-card__preview">{{ record.text_preview }}</div>
+          <div class="history-card__meta">
+            <span class="history-card__item-count">{{ record.item_count }} 项有数量</span>
+          </div>
+          <div class="history-card__actions">
+            <button type="button"
+                    class="history-card__btn btn-view"
+                    data-record-id="{{ record.id }}">
+              👁 查看
+            </button>
+            <button type="button"
+                    class="history-card__btn btn-copy"
+                    data-record-id="{{ record.id }}">
+              📋 复制
+            </button>
+            <button type="button"
+                    class="history-card__btn btn-delete"
+                    data-record-id="{{ record.id }}">
+              🗑 删除
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Detail view: placed OUTSIDE the flex card, full width below -->
+      <div class="history-card__detail" style="display:none;" data-detail-id="{{ record.id }}">
+        <div class="detail-text" data-detail-text-id="{{ record.id }}">加载中...</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty-state">
+    <p>📭 暂无历史记录</p>
+    <p style="margin-top:8px;">
+      <a href="/" style="color:var(--color-primary);">返回首页录入</a>
+    </p>
+  </div>
+{% endif %}
+
+<!-- Delete confirmation modal -->
+<div id="confirm-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-card__icon">⚠️</div>
+    <div class="modal-card__title" id="confirm-title">确认删除</div>
+    <div class="modal-card__body" id="confirm-body"></div>
+    <div class="modal-card__actions">
+      <button type="button" class="btn-cancel" id="btn-confirm-cancel">取消</button>
+      <button type="button" class="btn-danger" id="btn-confirm-ok">确认删除</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/history.js?v=8"></script>
+{% endblock %}

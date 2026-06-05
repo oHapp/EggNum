@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="鸡蛋登记">
+  <meta name="theme-color" content="#4CAF50">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <title>{% block title %}鸡蛋库存登记助手{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css?v=8">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="app-header">
+    {% block header_title %}🥚 鸡蛋库存登记助手{% endblock %}
+  </header>
+
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  {% if not config.get('TESTING') %}
+  <script>
+    // Register Service Worker (PWA)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js').catch(function(err) {
+        console.warn('SW registration failed:', err);
+      });
+    }
+  </script>
+  {% endif %}
+</body>
+</html>

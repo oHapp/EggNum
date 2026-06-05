@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}鸡蛋库存登记助手 — 录入{% endblock %}
+
+{% block content %}
+
+<!-- Auto-load status bar (hidden by default) -->
+<div id="auto-load-bar" class="auto-load-bar" style="display:flex;">
+  <span class="auto-load-bar__text"></span>
+  <button type="button" class="auto-load-bar__dismiss" title="清除已加载数据">&times;</button>
+</div>
+
+<!-- Store & Date bar -->
+<div class="meta-bar">
+  <span class="meta-bar__store">{{ store_name }}</span>
+  <span class="meta-bar__date">{{ date_display }}</span>
+</div>
+
+<!-- Egg category groups -->
+{% for category, specs in templates.items() %}
+<div class="category-group">
+  <button class="category-group__header" type="button">
+    {{ category }}
+  </button>
+  <div class="category-group__body">
+    {% for spec in specs %}
+    <div class="spec-row is-empty"
+         data-category="{{ category }}"
+         data-spec="{{ spec }}">
+      <span class="spec-label">{{ category }}{{ spec }}枚</span>
+      <div class="quantity-control">
+        <button type="button"
+                class="btn-qty btn-minus"
+                aria-label="减少{{ category }}{{ spec }}枚">−</button>
+        <input type="text"
+               class="qty-display is-zero"
+               inputmode="numeric"
+               pattern="[0-9]*"
+               min="0" max="999"
+               value="0"
+               autocomplete="off">
+        <button type="button"
+                class="btn-qty btn-plus"
+                aria-label="增加{{ category }}{{ spec }}枚">+</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+<!-- Action buttons -->
+<div class="main-actions">
+  <div class="main-actions__row">
+    <button type="button" id="btn-save" class="btn-save">
+      💾 保存
+    </button>
+    <button type="button" id="btn-generate" class="btn-primary">
+      📋 生成并复制
+    </button>
+  </div>
+  <a href="/history" class="btn-secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">
+    📜 查看历史记录
+  </a>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/quantity.js?v=8"></script>
+<script src="/static/js/app.js?v=8"></script>
+{% endblock %}

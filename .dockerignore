@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv
+venv/
+
+# SQLite DB (mounted as volume)
+instance/
+*.db
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Docs
+design.md
+DEPLOY.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

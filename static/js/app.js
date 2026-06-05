@@ -65,64 +65,61 @@ function updateDateDisplay() {
   var el = document.querySelector('.meta-bar__date');
   if (!el) return;
   el.textContent = parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+
   var isOverride = false;
   try { isOverride = !!localStorage.getItem('eggnum_dev_date'); } catch(e) {}
+
+  // Highlight override state
   el.style.background = isOverride ? '#fff3e0' : '#f0f0f0';
   el.style.color = isOverride ? '#e65100' : '';
-  el.style.cursor = 'pointer';
-  el.title = '点击切换日期 | 长按重置';
+
+  // Show/hide reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) resetBtn.style.display = isOverride ? '' : 'none';
 }
 
 function initDatePicker() {
-  var el = document.querySelector('.meta-bar__date');
-  if (!el) return;
+  var wrap = document.querySelector('.meta-bar__date-wrap');
+  if (!wrap) return;
 
-  el.addEventListener('click', function() {
-    // Create date input on-demand, trigger picker, clean up after
-    var input = document.createElement('input');
-    input.type = 'date';
-    input.value = getDateStr();
-    // Position off-screen but still rendered (needed for picker to show)
-    input.style.cssText = 'position:fixed;left:0;top:-100px;width:1px;height:1px;opacity:0.01;';
-    document.body.appendChild(input);
-    input.focus();
-    input.click();
+  // Create a transparent date input overlaid on the date text
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'meta-bar__date-input';
+  input.value = getDateStr();
+  wrap.style.position = 'relative';
+  wrap.appendChild(input);
 
-    input.addEventListener('change', function() {
-      if (input.value) {
-        localStorage.setItem('eggnum_dev_date', input.value);
-      } else {
+  input.addEventListener('change', function() {
+    if (input.value) {
+      var today = localDateStr();
+      if (input.value === today) {
         localStorage.removeItem('eggnum_dev_date');
+      } else {
+        localStorage.setItem('eggnum_dev_date', input.value);
       }
-      updateDateDisplay();
-      pageReady = false;
-      autoLoadToday();
-      if (typeof loadReserve === 'function') loadReserve();
-      document.body.removeChild(input);
-    });
-
-    input.addEventListener('blur', function() {
-      // Remove if user cancelled (no change event)
-      setTimeout(function() {
-        if (input.parentNode) document.body.removeChild(input);
-      }, 500);
-    });
+    } else {
+      localStorage.removeItem('eggnum_dev_date');
+    }
+    updateDateDisplay();
+    pageReady = false;
+    autoLoadToday();
+    if (typeof loadReserve === 'function') loadReserve();
   });
 
-  // Long-press to reset
-  var pressTimer;
-  el.addEventListener('pointerdown', function() {
-    pressTimer = setTimeout(function() {
+  // Reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
       localStorage.removeItem('eggnum_dev_date');
       updateDateDisplay();
       pageReady = false;
       autoLoadToday();
       if (typeof loadReserve === 'function') loadReserve();
       showToast('📅 已重置为今天');
-    }, 800);
-  });
-  el.addEventListener('pointerup', function() { clearTimeout(pressTimer); });
-  el.addEventListener('pointerleave', function() { clearTimeout(pressTimer); });
+    });
+  }
 }
 
 // Dev date override (set via dev panel, stored in localStorage)

@@ -175,12 +175,56 @@ body {
   color: var(--color-text);
 }
 
+.meta-bar__date-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .meta-bar__date {
   font-size: 14px;
   color: var(--color-text-secondary);
   background: #f0f0f0;
   padding: 4px 10px;
   border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Transparent date input overlaid on the date text */
+.meta-bar__date-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  /* Hide native input visuals, keep it clickable */
+}
+.meta-bar__date-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.meta-bar__reset-date {
+  font-size: 16px;
+  background: none;
+  border: 1px solid #e65100;
+  color: #e65100;
+  border-radius: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.meta-bar__reset-date:active {
+  background: #fff3e0;
 }
 
 /* --- Category Group (collapsible) --- */

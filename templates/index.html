@@ -20,7 +20,10 @@
 
   <div class="meta-bar">
     <span class="meta-bar__store">{{ store_name }}</span>
-    <span class="meta-bar__date">{{ date_display }}</span>
+    <div class="meta-bar__date-wrap">
+      <span class="meta-bar__date">{{ date_display }}</span>
+      <button class="meta-bar__reset-date" title="回到今天" style="display:none;">↺</button>
+    </div>
   </div>
 
   {% for category, specs in templates.items() %}

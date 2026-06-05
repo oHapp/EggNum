@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   createToastElement();
   updateDateDisplay();
+  initDatePicker();
   autoLoadToday();
 
   // Quantity change events
@@ -59,10 +60,58 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ── Date helpers ──
 function updateDateDisplay() {
-  var ds = getDateStr();  // respects dev override
+  var ds = getDateStr();
   var parts = ds.split('-');
   var el = document.querySelector('.meta-bar__date');
-  if (el) el.textContent = parseInt(parts[1]) + '月' + parseInt(parts[2]) + '日';
+  if (!el) return;
+  el.textContent = parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+  var isOverride = false;
+  try { isOverride = !!localStorage.getItem('eggnum_dev_date'); } catch(e) {}
+  el.style.background = isOverride ? '#fff3e0' : '#f0f0f0';
+  el.style.color = isOverride ? '#e65100' : '';
+  el.style.cursor = 'pointer';
+  el.title = '点击切换日期 | 长按重置';
+}
+
+function initDatePicker() {
+  var el = document.querySelector('.meta-bar__date');
+  if (!el) return;
+
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.id = 'visible-date-picker';
+  input.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
+  document.body.appendChild(input);
+
+  el.addEventListener('click', function() {
+    input.value = getDateStr();
+    if ('showPicker' in input) { try { input.showPicker(); } catch(e) { input.click(); } }
+    else { input.click(); }
+  });
+
+  input.addEventListener('change', function() {
+    if (input.value) { localStorage.setItem('eggnum_dev_date', input.value); }
+    else { localStorage.removeItem('eggnum_dev_date'); }
+    updateDateDisplay();
+    pageReady = false;
+    autoLoadToday();
+    if (typeof loadReserve === 'function') loadReserve();
+  });
+
+  // Long-press to reset
+  var pressTimer;
+  el.addEventListener('pointerdown', function() {
+    pressTimer = setTimeout(function() {
+      localStorage.removeItem('eggnum_dev_date');
+      updateDateDisplay();
+      pageReady = false;
+      autoLoadToday();
+      if (typeof loadReserve === 'function') loadReserve();
+      showToast('📅 已重置为今天');
+    }, 800);
+  });
+  el.addEventListener('pointerup', function() { clearTimeout(pressTimer); });
+  el.addEventListener('pointerleave', function() { clearTimeout(pressTimer); });
 }
 
 // Dev date override (set via dev panel, stored in localStorage)

@@ -1,10 +1,13 @@
 # ==============================================
 #  鸡蛋库存登记助手 — 1.0.0
-#  启动: docker compose up -d
+#  启动: docker compose up -d --build
 # ==============================================
 services:
   eggnum:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: "1.0.0"
     container_name: eggnum
     restart: unless-stopped
     ports:
@@ -13,7 +16,7 @@ services:
       - eggnum_data:/data
     environment:
       - TZ=Asia/Shanghai
-      - SECRET_KEY=a19fb4aacd060571cc5fe2631435943d2d5824bcdf26da66380bcb38c7f23de1
+      - SECRET_KEY=change-key
       - EGGS_DB_DIR=/data
 
 volumes:

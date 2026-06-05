@@ -41,8 +41,8 @@ cd eggnum
 # 修改 SECRET_KEY（用之前生成的密钥）
 # 编辑 docker-compose.yml，替换 change-me-to-a-random-string
 
-# 启动
-docker compose up -d
+# 启动（首次构建）
+docker compose up -d --build
 ```
 
 服务运行在 `http://你的服务器IP:5080`。
@@ -51,7 +51,17 @@ docker compose up -d
 
 ## 日常更新部署
 
-本地改了代码并推送后，在服务器执行：
+> ⚠️ 如果只执行 `docker compose up -d` 不会重新构建，仍然是旧版本！
+
+本地改了代码并推送后，在服务器执行（**必须加 --build**）：
+
+```bash
+cd ~/eggnum
+git pull
+docker compose up -d --build
+```
+
+或者分步执行：
 
 ```bash
 cd ~/eggnum
@@ -61,16 +71,17 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
-一键脚本（保存为 `~/update-eggnum.sh`）：
+建议保存为脚本 `~/update-eggnum.sh`：
 
 ```bash
 #!/bin/bash
+set -e
 cd ~/eggnum
 git pull
 docker compose down
 docker compose build --no-cache
 docker compose up -d
-echo "✅ 更新完成"
+echo "✅ 更新完成，版本: $(date +%Y%m%d-%H%M)"
 ```
 
 ---

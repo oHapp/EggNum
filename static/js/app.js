@@ -163,7 +163,7 @@ async function autoLoadToday() {
   // Always show bar first to keep layout stable
   showAutoLoadBar('⏳ 加载中...', false);
   try {
-    const resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now());
+    const resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
     const data = await resp.json();
     if (!data.found) {
       showAutoLoadBar('📋 今日暂无记录', false);
@@ -270,7 +270,8 @@ async function submitToBackend() {
   var resp = await fetch('/api/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    cache: 'no-store'
   });
   var data = await resp.json();
   if (data.success) {

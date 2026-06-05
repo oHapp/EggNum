@@ -11,7 +11,7 @@
 let todayRecordId = null;
 let autoSaveBusy = false;
 let autoSavePending = false;
-let lastSavePromise = null;
+let pageReady = false;  // block saves until autoLoadToday finishes
 
 document.addEventListener('DOMContentLoaded', () => {
   // Init all quantity controllers
@@ -107,8 +107,9 @@ function updateDateDisplay() {
 // ==========================================
 
 function scheduleAutoSave() {
+  if (!pageReady) return;  // don't save before initial load completes
   if (autoSaveBusy) {
-    autoSavePending = true;  // will retry after current save finishes
+    autoSavePending = true;
     return;
   }
   autoSaveBusy = true;
@@ -141,6 +142,7 @@ function scheduleAutoSave() {
 
 /** Synchronous save via sendBeacon (for pagehide/visibilitychange) */
 function saveNowSync() {
+  if (!pageReady || !todayRecordId) return;  // nothing to save
   var rows = collectRows();
   var storeName = document.querySelector('.meta-bar__store').textContent.trim();
   var date = new Date();
@@ -165,6 +167,7 @@ async function autoLoadToday() {
     const data = await resp.json();
     if (!data.found) {
       showAutoLoadBar('📋 今日暂无记录', false);
+      pageReady = true;
       return;
     }
 
@@ -189,6 +192,8 @@ async function autoLoadToday() {
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
+  } finally {
+    pageReady = true;
   }
 }
 

@@ -9,8 +9,8 @@ var hasChanges = false;
 var lastSaved = {};  // snapshot of last saved values, for delta detection
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Init quantity controllers
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  // Init quantity controllers (report tab only)
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     new QuantityController(row);
   });
 
@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('change', function(e) {
     if (e.target.classList.contains('qty-display')) { scheduleAutoSave(); }
   });
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     row.addEventListener('pointerup', function() {
       setTimeout(function() { scheduleAutoSave(); }, 50);
     });
@@ -88,7 +88,7 @@ async function autoLoadToday() {
     for (var i = 0; i < data.items.length; i++) {
       var item = data.items[i];
       var row = document.querySelector(
-        '.spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
+        '#tab-report .spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
       );
       if (!row) continue;
       var display = row.querySelector('.qty-display');
@@ -258,7 +258,7 @@ function getStoreName() {
 
 function collectRows() {
   var rows = [];
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var display = row.querySelector('.qty-display');
     var rawVal = display.value.trim();
     var qty = (rawVal === '' || !/^\d+$/.test(rawVal)) ? 0 : parseInt(rawVal, 10);
@@ -277,7 +277,7 @@ function generateOutputText(storeName, dateStr, rows) {
 }
 
 function resetAllToZero() {
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var d = row.querySelector('.qty-display');
     if (d) { d.value = '0'; row.classList.add('is-empty'); d.classList.add('is-zero'); }
   });

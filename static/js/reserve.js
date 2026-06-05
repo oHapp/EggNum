@@ -33,6 +33,7 @@ function loadReserve() {
       reserveReady = true;
       bindReserveButtons();
       refreshReportHints();
+      updateReserveTotals();
     })
     .catch(function(err) {
       console.error('loadReserve:', err);
@@ -118,6 +119,8 @@ function handleReserveDelta(row, delta) {
       syncReportDisplay(category, spec, -delta);
       refreshReportHints();
       if (typeof refreshReserveHints === 'function') refreshReserveHints();
+      if (typeof updateReportTotals === 'function') updateReportTotals();
+      updateReserveTotals();
       showReserveToast(delta > 0 ? '📦 +1 已存入留存' : '📤 -1 已取出留存');
     }
   }).catch(function(err) {
@@ -159,10 +162,29 @@ function showReserveToast(msg) {
     showToast(msg, 1500);
     return;
   }
-  // Fallback
   var bar = document.getElementById('reserve-bar');
   if (bar) {
     var el = bar.querySelector('.auto-load-bar__text');
     if (el) el.textContent = msg;
+  }
+}
+
+/** Update category totals on reserve tab */
+function updateReserveTotals() {
+  var grandTotal = 0;
+  document.querySelectorAll('#tab-reserve .category-group').forEach(function(group) {
+    var catTotal = 0;
+    group.querySelectorAll('.spec-row').forEach(function(row) {
+      var d = row.querySelector('.qty-display');
+      catTotal += d ? (parseInt(d.value, 10) || 0) : 0;
+    });
+    grandTotal += catTotal;
+    var el = group.querySelector('.category-total');
+    if (el) el.textContent = catTotal;
+  });
+  // Reserve bar
+  var barEl = document.querySelector('#reserve-bar .auto-load-bar__text');
+  if (barEl) {
+    barEl.textContent = '📦 库存留存 ｜ 总计: ' + grandTotal + '（跨天累计）';
   }
 }

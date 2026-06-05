@@ -150,8 +150,11 @@ async function autoLoadToday() {
     var data = await resp.json();
 
     if (!data.found) {
+      resetAllToZero();
       showAutoLoadBar('📋 今日暂无记录', false);
       pageReady = true;
+      updateReportTotals();
+      refreshReserveHints();
       return;
     }
 
@@ -177,12 +180,31 @@ async function autoLoadToday() {
     showAutoLoadBar('📥 已加载今日数据', true);
     snapshotValues();
     refreshReserveHints();
+    updateReportTotals();
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
   } finally {
     setTimeout(function() { pageReady = true; }, 300);
   }
+}
+
+/** Update category + grand totals on report tab */
+function updateReportTotals() {
+  var grandTotal = 0;
+  document.querySelectorAll('#tab-report .category-group').forEach(function(group) {
+    var catTotal = 0;
+    group.querySelectorAll('.spec-row').forEach(function(row) {
+      var d = row.querySelector('.qty-display');
+      catTotal += d ? (parseInt(d.value, 10) || 0) : 0;
+    });
+    grandTotal += catTotal;
+    var el = group.querySelector('.category-total');
+    if (el) el.textContent = catTotal;
+  });
+  // Meta bar total
+  var totalEl = document.querySelector('.meta-bar__total');
+  if (totalEl) totalEl.textContent = '合计: ' + grandTotal;
 }
 
 function snapshotValues() {
@@ -222,6 +244,7 @@ function scheduleAutoSave() {
 
   submitToBackend().then(function() {
     hasChanges = false;
+    updateReportTotals();
     showAutoLoadBar('✅ 已保存', false);
   }).catch(function(err) {
     console.error('autoSave failed:', err);

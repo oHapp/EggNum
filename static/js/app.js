@@ -6,10 +6,11 @@ var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
+var lastSaved = {};  // snapshot of last saved values, for delta detection
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Init quantity controllers
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  // Init quantity controllers (report tab only)
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     new QuantityController(row);
   });
 
@@ -38,13 +39,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
   createToastElement();
   updateDateDisplay();
+  initDatePicker();
   autoLoadToday();
 
   // Quantity change events
   document.addEventListener('change', function(e) {
     if (e.target.classList.contains('qty-display')) { scheduleAutoSave(); }
   });
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     row.addEventListener('pointerup', function() {
       setTimeout(function() { scheduleAutoSave(); }, 50);
     });
@@ -58,9 +60,79 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ── Date helpers ──
 function updateDateDisplay() {
-  var d = new Date();
+  var ds = getDateStr();
+  var parts = ds.split('-');
   var el = document.querySelector('.meta-bar__date');
-  if (el) el.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  if (!el) return;
+  el.textContent = parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+
+  var isOverride = false;
+  try { isOverride = !!localStorage.getItem('eggnum_dev_date'); } catch(e) {}
+
+  // Highlight override state
+  el.style.background = isOverride ? '#fff3e0' : '#f0f0f0';
+  el.style.color = isOverride ? '#e65100' : '';
+
+  // Show/hide reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) resetBtn.style.display = isOverride ? '' : 'none';
+}
+
+function initDatePicker() {
+  var wrap = document.querySelector('.meta-bar__date-wrap');
+  if (!wrap) return;
+
+  // Create a transparent date input overlaid on the date text
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'meta-bar__date-input';
+  input.value = getDateStr();
+  wrap.style.position = 'relative';
+  wrap.appendChild(input);
+
+  input.addEventListener('change', function() {
+    if (input.value) {
+      var today = localDateStr();
+      if (input.value === today) {
+        localStorage.removeItem('eggnum_dev_date');
+      } else {
+        localStorage.setItem('eggnum_dev_date', input.value);
+      }
+    } else {
+      localStorage.removeItem('eggnum_dev_date');
+    }
+    updateDateDisplay();
+    pageReady = false;
+    autoLoadToday();
+    if (typeof loadReserve === 'function') loadReserve();
+  });
+
+  // Reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      localStorage.removeItem('eggnum_dev_date');
+      updateDateDisplay();
+      pageReady = false;
+      autoLoadToday();
+      if (typeof loadReserve === 'function') loadReserve();
+      showToast('📅 已重置为今天');
+    });
+  }
+}
+
+// Dev date override (set via dev panel, stored in localStorage)
+function getDateStr() {
+  try {
+    var ov = localStorage.getItem('eggnum_dev_date');
+    if (ov) {
+      var today = localDateStr();
+      if (ov === today) { localStorage.removeItem('eggnum_dev_date'); return today; }
+      return ov;
+    }
+  } catch(e) {}
+  return localDateStr();
 }
 
 function localDateStr(date) {
@@ -74,7 +146,7 @@ function localDateStr(date) {
 async function autoLoadToday() {
   showAutoLoadBar('⏳ 加载中...', false);
   try {
-    var resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
+    var resp = await fetch('/api/today?date=' + getDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
     var data = await resp.json();
 
     if (!data.found) {
@@ -87,7 +159,7 @@ async function autoLoadToday() {
     for (var i = 0; i < data.items.length; i++) {
       var item = data.items[i];
       var row = document.querySelector(
-        '.spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
+        '#tab-report .spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
       );
       if (!row) continue;
       var display = row.querySelector('.qty-display');
@@ -103,13 +175,36 @@ async function autoLoadToday() {
     }
 
     showAutoLoadBar('📥 已加载今日数据', true);
+    snapshotValues();
+    refreshReserveHints();
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
   } finally {
-    // Delay pageReady to prevent spurious auto-save during load
     setTimeout(function() { pageReady = true; }, 300);
   }
+}
+
+function snapshotValues() {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    lastSaved[key] = display ? (parseInt(display.value) || 0) : 0;
+  });
+}
+
+/** Copy reserve quantities to hints on report tab */
+function refreshReserveHints() {
+  document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
+    var cat = hint.dataset.category;
+    var sp = hint.dataset.spec;
+    var reserveRow = document.querySelector(
+      '#tab-reserve .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
+    );
+    if (!reserveRow) { hint.textContent = '留存: 0'; return; }
+    var display = reserveRow.querySelector('.qty-display');
+    hint.textContent = '留存: ' + (display ? display.value : '0');
+  });
 }
 
 // ── Auto-save ──
@@ -145,15 +240,28 @@ function scheduleAutoSave() {
 
 function saveNowSync() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows, record_id: todayRecordId };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows, record_id: todayRecordId };
   navigator.sendBeacon('/api/submit', JSON.stringify(body));
 }
 
 // ── Backend submit ──
 function submitToBackend() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows };
   if (todayRecordId) body.record_id = todayRecordId;
+
+  // Send only changed items to avoid overwriting concurrent edits
+  var changed = [];
+  for (var i = 0; i < rows.length; i++) {
+    var key = rows[i].category + '_' + rows[i].spec;
+    if (lastSaved[key] !== rows[i].quantity) {
+      changed.push(rows[i]);
+    }
+  }
+  if (changed.length > 0 && changed.length < rows.length) {
+    body.items = changed;
+    body.merge = true;  // tell server to merge, not replace
+  }
 
   return fetch('/api/submit', {
     method: 'POST',
@@ -171,6 +279,7 @@ function submitToBackend() {
     if (data.success) {
       todayRecordId = data.record_id;
       updateDateDisplay();
+      snapshotValues();  // update snapshot after successful save
       return data;
     }
     throw new Error(data.error || 'unknown');
@@ -202,7 +311,7 @@ async function handleSave() {
 async function handleGenerateCopy() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
   var rows = collectRows();
-  var text = generateOutputText(getStoreName(), localDateStr(), rows);
+  var text = generateOutputText(getStoreName(), getDateStr(), rows);
 
   var btn = document.getElementById('btn-generate');
   var orig = btn.textContent;
@@ -235,7 +344,7 @@ function getStoreName() {
 
 function collectRows() {
   var rows = [];
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var display = row.querySelector('.qty-display');
     var rawVal = display.value.trim();
     var qty = (rawVal === '' || !/^\d+$/.test(rawVal)) ? 0 : parseInt(rawVal, 10);
@@ -254,7 +363,7 @@ function generateOutputText(storeName, dateStr, rows) {
 }
 
 function resetAllToZero() {
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var d = row.querySelector('.qty-display');
     if (d) { d.value = '0'; row.classList.add('is-empty'); d.classList.add('is-zero'); }
   });

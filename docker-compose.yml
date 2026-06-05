@@ -1,5 +1,5 @@
 # ==============================================
-#  鸡蛋库存登记助手 — 1.3.0
+#  鸡蛋库存登记助手 — 1.3.1
 #  启动: docker compose up -d --build
 # ==============================================
 services:
@@ -7,7 +7,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "1.3.0"
+        APP_VERSION: "1.3.1"
     container_name: eggnum
     restart: unless-stopped
     ports:

@@ -32,10 +32,25 @@ function loadReserve() {
       }
       reserveReady = true;
       bindReserveButtons();
+      refreshReportHints();
     })
     .catch(function(err) {
       console.error('loadReserve:', err);
     });
+}
+
+/** Copy report quantities to hints on reserve tab */
+function refreshReportHints() {
+  document.querySelectorAll('#tab-reserve .report-qty-hint').forEach(function(hint) {
+    var cat = hint.dataset.category;
+    var sp = hint.dataset.spec;
+    var reportRow = document.querySelector(
+      '#tab-report .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
+    );
+    if (!reportRow) { hint.textContent = '出库: -'; return; }
+    var display = reportRow.querySelector('.qty-display');
+    hint.textContent = '出库: ' + (display ? display.value : '-');
+  });
 }
 
 function bindReserveButtons() {
@@ -101,6 +116,7 @@ function handleReserveDelta(row, delta) {
     } else {
       // Sync report page display
       syncReportDisplay(category, spec, -delta);
+      refreshReportHints();
       showReserveToast(delta > 0 ? '📦 +1 已存入留存' : '📤 -1 已取出留存');
     }
   }).catch(function(err) {

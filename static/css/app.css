@@ -101,6 +101,16 @@ body {
   background: #e8f5e9;
 }
 
+/* --- Report qty hint on reserve rows --- */
+.report-qty-hint {
+  font-size: 11px;
+  color: #999;
+  margin-right: 6px;
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: right;
+}
+
 /* --- Reserve Hint --- */
 .reserve-hint {
   text-align: center;

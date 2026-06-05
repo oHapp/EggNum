@@ -15,9 +15,12 @@ document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.tab-page').forEach(function(p) { p.style.display = 'none'; });
       document.getElementById('tab-' + tab).style.display = '';
 
-      // When switching to report, refresh date display
+      // When switching, refresh displays
       if (tab === 'report' && typeof updateDateDisplay === 'function') {
         updateDateDisplay();
+      }
+      if (tab === 'reserve' && typeof refreshReportHints === 'function') {
+        refreshReportHints();
       }
     });
   });

@@ -59,9 +59,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ── Date helpers ──
 function updateDateDisplay() {
-  var d = new Date();
+  var ds = getDateStr();  // respects dev override
+  var parts = ds.split('-');
   var el = document.querySelector('.meta-bar__date');
-  if (el) el.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  if (el) el.textContent = parseInt(parts[1]) + '月' + parseInt(parts[2]) + '日';
+}
+
+// Dev date override (set via dev panel, stored in localStorage)
+function getDateStr() {
+  try {
+    var ov = localStorage.getItem('eggnum_dev_date');
+    if (ov) return ov;
+  } catch(e) {}
+  return getDateStr();
 }
 
 function localDateStr(date) {
@@ -75,7 +85,7 @@ function localDateStr(date) {
 async function autoLoadToday() {
   showAutoLoadBar('⏳ 加载中...', false);
   try {
-    var resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
+    var resp = await fetch('/api/today?date=' + getDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
     var data = await resp.json();
 
     if (!data.found) {
@@ -154,14 +164,14 @@ function scheduleAutoSave() {
 
 function saveNowSync() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows, record_id: todayRecordId };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows, record_id: todayRecordId };
   navigator.sendBeacon('/api/submit', JSON.stringify(body));
 }
 
 // ── Backend submit ──
 function submitToBackend() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows };
   if (todayRecordId) body.record_id = todayRecordId;
 
   // Send only changed items to avoid overwriting concurrent edits
@@ -225,7 +235,7 @@ async function handleSave() {
 async function handleGenerateCopy() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
   var rows = collectRows();
-  var text = generateOutputText(getStoreName(), localDateStr(), rows);
+  var text = generateOutputText(getStoreName(), getDateStr(), rows);
 
   var btn = document.getElementById('btn-generate');
   var orig = btn.textContent;

@@ -284,11 +284,13 @@ def api_today():
     ).fetchone()
 
     if not row:
-        return jsonify({"found": False})
+        resp = jsonify({"found": False})
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
 
     items = _load_items_for_record(row["id"])
 
-    return jsonify(
+    resp = jsonify(
         {
             "found": True,
             "record_id": row["id"],
@@ -297,6 +299,8 @@ def api_today():
             "items": items,
         }
     )
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 def _parse_json_body():
@@ -360,24 +364,20 @@ def api_submit():
 
     db = get_db()
 
-    if record_id:
-        # ── UPDATE existing record ──
-        existing = db.execute(
-            "SELECT id FROM records WHERE id = ?", (record_id,)
-        ).fetchone()
-        if not existing:
-            return jsonify({"success": False, "error": "记录不存在"}), 404
+    # ── Multi-device: always upsert by DATE ──
+    existing = db.execute(
+        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
+        (record_date.isoformat(),),
+    ).fetchone()
 
-        # Update store_name / date
+    if existing:
+        used_id = existing["id"]
         db.execute(
             "UPDATE records SET store_name = ?, record_date = ? WHERE id = ?",
-            (store_name, record_date.isoformat(), record_id),
+            (store_name, record_date.isoformat(), used_id),
         )
-        # Delete old items and re-insert
-        db.execute("DELETE FROM record_items WHERE record_id = ?", (record_id,))
-        used_id = record_id
+        db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
     else:
-        # ── INSERT new record ──
         cursor = db.execute(
             "INSERT INTO records (store_name, record_date) VALUES (?, ?)",
             (store_name, record_date.isoformat()),
@@ -409,7 +409,7 @@ def api_submit():
             "success": True,
             "text": text,
             "record_id": used_id,
-            "is_update": bool(record_id),
+            "is_update": bool(existing),
         }
     )
 

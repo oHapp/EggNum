@@ -438,7 +438,7 @@ def api_submit():
             "success": True,
             "text": text,
             "record_id": used_id,
-            "is_update": bool(existing),
+            "is_update": bool(same_date),
         }
     )
 

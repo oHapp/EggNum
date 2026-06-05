@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 *.pyo
-.env
+.env        # ⚠️ server secret key — NEVER commit
 .venv
 venv/
 

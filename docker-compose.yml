@@ -11,12 +11,12 @@ services:
     container_name: eggnum
     restart: unless-stopped
     ports:
-      - "5080:5000"
+      - "${EGGS_PORT:-5080}:5000"
     volumes:
       - eggnum_data:/data
     environment:
       - TZ=Asia/Shanghai
-      - SECRET_KEY=change-key
+      - SECRET_KEY=${SECRET_KEY}
       - EGGS_DB_DIR=/data
 
 volumes:

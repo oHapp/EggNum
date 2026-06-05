@@ -38,51 +38,71 @@ ssh user@your-server
 git clone <你的仓库地址> eggnum
 cd eggnum
 
-# 修改 SECRET_KEY（用之前生成的密钥）
-# 编辑 docker-compose.yml，替换 change-me-to-a-random-string
+# 创建 .env 配置文件（docker-compose 自动读取）
+cp .env.example .env
+# 编辑 .env，把 SECRET_KEY 改为随机字符串
+nano .env
 
 # 启动（首次构建）
 docker compose up -d --build
 ```
 
-服务运行在 `http://你的服务器IP:5080`。
+### 2.1 服务器已有旧版（迁移到 .env）
+
+```bash
+cd ~/eggnum
+
+# 如果之前改过 docker-compose.yml 里的 SECRET_KEY，先记下来
+grep SECRET_KEY docker-compose.yml
+
+# 创建 .env 文件
+echo "SECRET_KEY=你的密钥" > .env
+echo "EGGS_PORT=5080" >> .env
+
+# 丢弃对 docker-compose.yml 的本地修改，拉取新版
+git stash
+git pull --ff-only
+git stash drop   # 旧改动已不需要
+
+# 重建
+docker compose up -d --build
+```
 
 ---
 
 ## 日常更新部署
 
-> ⚠️ 如果只执行 `docker compose up -d` 不会重新构建，仍然是旧版本！
+> ⚠️ 服务器上**绝不能直接改 `docker-compose.yml`**，密钥等配置放在 `.env` 文件里。
+> 这样 `git pull` 才不会冲突。
 
-本地改了代码并推送后，在服务器执行（**必须加 --build**）：
+服务器执行一键更新：
 
 ```bash
 cd ~/eggnum
-git pull
+git stash && git pull --ff-only && git stash pop
 docker compose up -d --build
 ```
 
-或者分步执行：
+`git stash` 暂存你本地的 `.env` 等改动，`git pull` 拉取最新代码，`git stash pop` 恢复你的本地配置。
 
-```bash
-cd ~/eggnum
-git pull
-docker compose down
-docker compose build --no-cache
-docker compose up -d
-```
-
-建议保存为脚本 `~/update-eggnum.sh`：
+推荐保存为脚本 `~/update-eggnum.sh`：
 
 ```bash
 #!/bin/bash
 set -e
 cd ~/eggnum
-git pull
+echo "📥 拉取最新代码..."
+git stash push -m "auto-stash-before-update-$(date +%Y%m%d-%H%M)" 2>/dev/null || true
+git pull --ff-only
+git stash pop 2>/dev/null || true
+echo "🔨 重新构建..."
 docker compose down
 docker compose build --no-cache
 docker compose up -d
-echo "✅ 更新完成，版本: $(date +%Y%m%d-%H%M)"
+echo "✅ 更新完成"
 ```
+
+如果 `stash pop` 有冲突，手动解决后 `git stash drop` 即可。
 
 ---
 

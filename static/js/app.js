@@ -5,6 +5,7 @@ var todayRecordId = null;
 var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
+var hasChanges = false;
 
 function log() {
   var args = ['[EggNum]'].concat(Array.prototype.slice.call(arguments));
@@ -62,10 +63,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
-  // pagehide / visibility
-  window.addEventListener('pagehide', function() { saveNowSync(); });
+  // pagehide only — visibilitychange was overwriting data on tab switch
+  window.addEventListener('pagehide', function() { if (hasChanges) saveNowSync(); });
+  // visibility change: only save if user actually changed something
   document.addEventListener('visibilitychange', function() {
-    if (document.hidden) { saveNowSync(); }
+    if (document.hidden && hasChanges) { saveNowSync(); }
   });
 });
 
@@ -139,6 +141,7 @@ async function autoLoadToday() {
 // ── Auto-save ──
 function scheduleAutoSave() {
   if (!pageReady) { log('scheduleAutoSave: skipped (page not ready)'); return; }
+  hasChanges = true;
   if (autoSaveBusy) { autoSavePending = true; return; }
   autoSaveBusy = true;
   autoSavePending = false;
@@ -148,6 +151,7 @@ function scheduleAutoSave() {
 
   submitToBackend().then(function(result) {
     log('scheduleAutoSave: OK record_id=' + result.record_id);
+    hasChanges = false;
     showAutoLoadBar('✅ 已保存 #' + result.record_id, false);
   }).catch(function(err) {
     log('scheduleAutoSave: FAIL', err.message || err);

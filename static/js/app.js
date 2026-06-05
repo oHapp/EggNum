@@ -182,6 +182,9 @@ function submitToBackend() {
   if (todayRecordId) { body.record_id = todayRecordId; }
   log('submitToBackend: POST body has ' + rows.length + ' items, record_id=' + (todayRecordId||'null'));
   log('submitToBackend: date=' + body.record_date + ' store=' + body.store_name);
+  // Show first 3 non-zero items
+  var nonZero = rows.filter(function(r) { return r.quantity > 0; });
+  log('submitToBackend: non-zero items (' + nonZero.length + '):', nonZero.slice(0, 5).map(function(r){return r.category+r.spec+'='+r.quantity}).join(', '));
 
   return fetch('/api/submit', {
     method: 'POST',

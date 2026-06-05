@@ -1,6 +1,6 @@
 # 鸡蛋库存登记助手 — 部署说明
 
-> 版本: 1.1.0 | 技术栈: Python Flask + SQLite + Docker
+> 版本: 1.1.1 | 技术栈: Python Flask + SQLite + Docker
 
 ---
 
@@ -20,7 +20,7 @@
 cd EggNum
 git init
 git add -A
-git commit -m "v1.1.0 — 鸡蛋库存登记助手"
+git commit -m "v1.1.1 — 鸡蛋库存登记助手"
 
 # 推送到你的 Git 仓库（GitHub / Gitee / 自建 Git）
 git remote add origin <你的仓库地址>

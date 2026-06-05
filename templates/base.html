@@ -11,7 +11,7 @@
   <link rel="manifest" href="/static/manifest.json">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <title>{% block title %}鸡蛋库存登记助手{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=9">
+  <link rel="stylesheet" href="/static/css/app.css?v=10">
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -22,6 +22,10 @@
   <div class="container">
     {% block content %}{% endblock %}
   </div>
+
+  <footer style="text-align:center;padding:12px;font-size:11px;color:#bbb;">
+    v1.1.1
+  </footer>
 
   {% block scripts %}{% endblock %}
 

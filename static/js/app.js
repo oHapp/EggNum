@@ -155,7 +155,7 @@ async function autoLoadToday() {
   // Always show bar first to keep layout stable
   showAutoLoadBar('⏳ 加载中...', false);
   try {
-    const resp = await fetch('/api/today?date=' + localDateStr());
+    const resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now());
     const data = await resp.json();
     if (!data.found) {
       showAutoLoadBar('📋 今日暂无记录', false);

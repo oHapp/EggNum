@@ -58,6 +58,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auto-load today's data from backend
   autoLoadToday();
 
+  // Debug: dump DB state to console
+  fetch('/api/debug').then(function(r){return r.json()}).then(function(d){
+    console.log('DB has', d.record_count, 'records');
+    d.records.forEach(function(r){ console.log(' #'+r.id, r.record_date, 'qty='+r.total_qty, r.items.map(function(i){return i.category+i.spec+':'+i.quantity}).join(', ')); });
+  });
+
   // Listen for quantity changes → save immediately
   document.addEventListener('change', (e) => {
     if (e.target.classList.contains('qty-display')) {
@@ -179,7 +185,7 @@ async function autoLoadToday() {
         display.classList.remove('is-zero');
       }
     }
-    showAutoLoadBar('📥 已加载今日数据', true);
+    showAutoLoadBar('📥 record#' + todayRecordId + ' ' + data.record_date, true);
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
@@ -282,7 +288,7 @@ async function handleSave() {
   try {
     await submitToBackend();
     showToast('💾 已保存');
-    showAutoLoadBar('📥 已加载今日数据 (已保存)', true);
+    showAutoLoadBar('📥 record#' + todayRecordId + ' (已保存)', true);
     if (navigator.vibrate) { navigator.vibrate(10); }
   } catch (err) {
     console.error('handleSave:', err);
@@ -328,7 +334,7 @@ async function handleGenerateCopy() {
   // 3. Save to backend
   try {
     await submitToBackend();
-    showAutoLoadBar('📥 已加载今日数据 (已保存)', true);
+    showAutoLoadBar('📥 record#' + todayRecordId + ' (已保存)', true);
   } catch (err) {
     console.error('handleGenerateCopy save:', err);
   } finally {

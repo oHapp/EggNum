@@ -262,6 +262,30 @@ def history():
 # ==========================================
 
 
+@app.route("/api/debug")
+def api_debug():
+    """Show ALL records and their items — for troubleshooting."""
+    db = get_db()
+    records = db.execute(
+        "SELECT id, store_name, record_date, created_at FROM records ORDER BY record_date DESC, created_at DESC"
+    ).fetchall()
+    result = []
+    for r in records:
+        items = db.execute(
+            "SELECT category, spec, quantity FROM record_items WHERE record_id = ? ORDER BY sort_order",
+            (r["id"],),
+        ).fetchall()
+        qty_sum = sum(it["quantity"] for it in items)
+        result.append({
+            "id": r["id"],
+            "record_date": r["record_date"],
+            "created_at": r["created_at"],
+            "total_qty": qty_sum,
+            "items": [dict(it) for it in items if it["quantity"] > 0],
+        })
+    return jsonify({"record_count": len(result), "records": result})
+
+
 @app.route("/api/today")
 def api_today():
     """
@@ -364,19 +388,24 @@ def api_submit():
 
     db = get_db()
 
-    # ── Multi-device: always upsert by DATE ──
-    existing = db.execute(
-        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
+    # ── Multi-device: always upsert by DATE. Keep only ONE record per date ──
+    same_date = db.execute(
+        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC",
         (record_date.isoformat(),),
-    ).fetchone()
+    ).fetchall()
 
-    if existing:
-        used_id = existing["id"]
+    if same_date:
+        # Use the latest record
+        used_id = same_date[0]["id"]
         db.execute(
             "UPDATE records SET store_name = ?, record_date = ? WHERE id = ?",
             (store_name, record_date.isoformat(), used_id),
         )
         db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
+        # Clean up duplicate records for same date (legacy data)
+        for dup in same_date[1:]:
+            db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
+            db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
     else:
         cursor = db.execute(
             "INSERT INTO records (store_name, record_date) VALUES (?, ?)",

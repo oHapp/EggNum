@@ -47,9 +47,9 @@ function refreshReportHints() {
     var reportRow = document.querySelector(
       '#tab-report .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
     );
-    if (!reportRow) { hint.textContent = '出库: -'; return; }
+    if (!reportRow) { hint.textContent = '出库: 0'; return; }
     var display = reportRow.querySelector('.qty-display');
-    hint.textContent = '出库: ' + (display ? display.value : '-');
+    hint.textContent = '出库: ' + (display ? display.value : '0');
   });
 }
 

@@ -140,10 +140,9 @@ function refreshReserveHints() {
     var reserveRow = document.querySelector(
       '#tab-reserve .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
     );
-    if (!reserveRow) { hint.textContent = '留存: -'; return; }
+    if (!reserveRow) { hint.textContent = '留存: 0'; return; }
     var display = reserveRow.querySelector('.qty-display');
-    var val = display ? parseInt(display.value) || 0 : 0;
-    hint.textContent = '留存: ' + (val > 0 ? val : '-');
+    hint.textContent = '留存: ' + (display ? display.value : '0');
   });
 }
 

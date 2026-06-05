@@ -205,13 +205,6 @@ function updateReportTotals() {
   // Meta bar total
   var totalEl = document.querySelector('.meta-bar__total');
   if (totalEl) totalEl.textContent = '合计: ' + grandTotal;
-  // Reserve bar
-  var barEl = document.querySelector('#reserve-bar .auto-load-bar__text');
-  if (barEl && barEl.textContent.indexOf('总计') < 0) {
-    barEl.textContent = barEl.textContent.replace('（跨天累计）', '') + ' ｜ 总计: ' + grandTotal + '（跨天累计）';
-  } else if (barEl) {
-    barEl.textContent = barEl.textContent.replace(/ ｜ 总计: \d+/, ' ｜ 总计: ' + grandTotal);
-  }
 }
 
 function snapshotValues() {

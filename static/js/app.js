@@ -77,25 +77,36 @@ function initDatePicker() {
   var el = document.querySelector('.meta-bar__date');
   if (!el) return;
 
-  var input = document.createElement('input');
-  input.type = 'date';
-  input.id = 'visible-date-picker';
-  input.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none;';
-  document.body.appendChild(input);
-
   el.addEventListener('click', function() {
+    // Create date input on-demand, trigger picker, clean up after
+    var input = document.createElement('input');
+    input.type = 'date';
     input.value = getDateStr();
-    if ('showPicker' in input) { try { input.showPicker(); } catch(e) { input.click(); } }
-    else { input.click(); }
-  });
+    // Position off-screen but still rendered (needed for picker to show)
+    input.style.cssText = 'position:fixed;left:0;top:-100px;width:1px;height:1px;opacity:0.01;';
+    document.body.appendChild(input);
+    input.focus();
+    input.click();
 
-  input.addEventListener('change', function() {
-    if (input.value) { localStorage.setItem('eggnum_dev_date', input.value); }
-    else { localStorage.removeItem('eggnum_dev_date'); }
-    updateDateDisplay();
-    pageReady = false;
-    autoLoadToday();
-    if (typeof loadReserve === 'function') loadReserve();
+    input.addEventListener('change', function() {
+      if (input.value) {
+        localStorage.setItem('eggnum_dev_date', input.value);
+      } else {
+        localStorage.removeItem('eggnum_dev_date');
+      }
+      updateDateDisplay();
+      pageReady = false;
+      autoLoadToday();
+      if (typeof loadReserve === 'function') loadReserve();
+      document.body.removeChild(input);
+    });
+
+    input.addEventListener('blur', function() {
+      // Remove if user cancelled (no change event)
+      setTimeout(function() {
+        if (input.parentNode) document.body.removeChild(input);
+      }, 500);
+    });
   });
 
   // Long-press to reset
@@ -118,9 +129,13 @@ function initDatePicker() {
 function getDateStr() {
   try {
     var ov = localStorage.getItem('eggnum_dev_date');
-    if (ov) return ov;
+    if (ov) {
+      var today = localDateStr();
+      if (ov === today) { localStorage.removeItem('eggnum_dev_date'); return today; }
+      return ov;
+    }
   } catch(e) {}
-  return getDateStr();
+  return localDateStr();
 }
 
 function localDateStr(date) {

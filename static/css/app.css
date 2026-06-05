@@ -65,6 +65,51 @@ body {
   text-decoration: none;
 }
 
+/* --- Tab Bar --- */
+.tab-bar {
+  display: flex;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 12px 8px;
+  border: none;
+  background: var(--color-surface);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  border-bottom: 3px solid transparent;
+}
+
+.tab-btn--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  background: #f1f8f1;
+}
+
+.tab-btn:active {
+  background: #e8f5e9;
+}
+
+/* --- Reserve Hint --- */
+.reserve-hint {
+  text-align: center;
+  font-size: 13px;
+  color: #999;
+  padding: 16px 8px;
+  line-height: 1.6;
+}
+
 /* --- Main Container --- */
 .container {
   max-width: 480px;

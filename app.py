@@ -118,6 +118,15 @@ def init_db() -> None:
             ON record_items(record_id);
         CREATE INDEX IF NOT EXISTS idx_records_date
             ON records(record_date);
+
+        CREATE TABLE IF NOT EXISTS reserve_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            category    TEXT NOT NULL,
+            spec        INTEGER NOT NULL,
+            quantity    INTEGER NOT NULL DEFAULT 0,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(category, spec)
+        );
     """)
     db.commit()
 
@@ -262,6 +271,92 @@ def history():
 # ==========================================
 
 
+# ── Reserve (库存留存) ──
+
+
+@app.route("/api/reserve")
+def api_reserve():
+    """Get all reserve quantities (cumulative, cross-day)."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT category, spec, quantity FROM reserve_items ORDER BY category, spec"
+    ).fetchall()
+    items = [dict(r) for r in rows]
+    return jsonify({"items": items})
+
+
+@app.route("/api/reserve", methods=["POST"])
+def api_reserve_update():
+    """
+    Update reserve quantity for a single spec and sync with today's report.
+
+    Body: { category, spec, delta }
+    - delta > 0: increase reserve, decrease today's report
+    - delta < 0: decrease reserve, increase today's report
+    """
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    category = data.get("category", "")
+    spec = data.get("spec", 0)
+    delta = data.get("delta", 0)
+    report_date = data.get("date", date.today().isoformat())
+
+    if delta == 0:
+        return jsonify({"success": False, "error": "delta 不能为 0"}), 400
+
+    db = get_db()
+
+    # Upsert reserve item
+    existing = db.execute(
+        "SELECT id, quantity FROM reserve_items WHERE category = ? AND spec = ?",
+        (category, spec),
+    ).fetchone()
+
+    if existing:
+        new_qty = existing["quantity"] + delta
+        if new_qty < 0:
+            return jsonify({"success": False, "error": "留存不足"}), 400
+        db.execute(
+            "UPDATE reserve_items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_qty, existing["id"]),
+        )
+    else:
+        if delta < 0:
+            return jsonify({"success": False, "error": "留存不足"}), 400
+        new_qty = delta
+        db.execute(
+            "INSERT INTO reserve_items (category, spec, quantity) VALUES (?, ?, ?)",
+            (category, spec, delta),
+        )
+
+    # Sync with today's report: delta > 0 means move FROM report TO reserve
+    # So report quantity decreases by delta
+    report_row = db.execute(
+        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
+        (report_date,),
+    ).fetchone()
+
+    if report_row:
+        # Get current report qty for this spec
+        item_row = db.execute(
+            "SELECT id, quantity FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
+            (report_row["id"], category, spec),
+        ).fetchone()
+        if item_row:
+            new_report_qty = item_row["quantity"] - delta  # delta>0 means report decreases
+            if new_report_qty < 0:
+                new_report_qty = 0
+            db.execute(
+                "UPDATE record_items SET quantity = ? WHERE id = ?",
+                (new_report_qty, item_row["id"]),
+            )
+
+    db.commit()
+    return jsonify({"success": True, "quantity": new_qty})
+
+
 @app.route("/api/debug")
 def api_debug():
     """Show ALL records and their items — for troubleshooting."""
@@ -367,7 +462,8 @@ def api_submit():
     store_name = data.get("store_name", DEFAULT_STORE_NAME)
     record_date_str = data.get("record_date", "")
     items_in = data.get("items", [])
-    record_id = data.get("record_id")  # None → INSERT, int → UPDATE
+    record_id = data.get("record_id")
+    merge_mode = data.get("merge", False)  # True → update only given items
 
     if not items_in:
         return jsonify({"success": False, "error": "没有提交任何数据"}), 400
@@ -395,14 +491,15 @@ def api_submit():
     ).fetchall()
 
     if same_date:
-        # Use the latest record
         used_id = same_date[0]["id"]
         db.execute(
             "UPDATE records SET store_name = ?, record_date = ? WHERE id = ?",
             (store_name, record_date.isoformat(), used_id),
         )
-        db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
-        # Clean up duplicate records for same date (legacy data)
+        if not merge_mode:
+            # Full replace: delete all items, re-insert
+            db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
+        # Clean up duplicates
         for dup in same_date[1:]:
             db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
             db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
@@ -413,19 +510,46 @@ def api_submit():
         )
         used_id = cursor.lastrowid
 
-    # Insert items in template order
-    sort_idx = 0
-    for cat in PRESET_TEMPLATES:
-        for sp in PRESET_TEMPLATES[cat]:
-            key = _item_key(cat, sp)
-            qty = qty_map.get(key, 0)
-            db.execute(
-                """INSERT INTO record_items
-                   (record_id, category, spec, quantity, sort_order)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (used_id, cat, sp, qty, sort_idx),
-            )
-            sort_idx += 1
+    # Upsert items
+    if merge_mode and same_date:
+        # Only update/insert the changed items
+        for item in items_in:
+            cat = item.get("category", "")
+            sp = item.get("spec", 0)
+            qty = max(0, min(999, int(item.get("quantity", 0))))
+            existing_item = db.execute(
+                "SELECT id FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
+                (used_id, cat, sp),
+            ).fetchone()
+            if existing_item:
+                db.execute(
+                    "UPDATE record_items SET quantity = ? WHERE id = ?",
+                    (qty, existing_item["id"]),
+                )
+            else:
+                # Find max sort_order for this record
+                max_sort = db.execute(
+                    "SELECT COALESCE(MAX(sort_order), -1) FROM record_items WHERE record_id = ?",
+                    (used_id,),
+                ).fetchone()[0]
+                db.execute(
+                    "INSERT INTO record_items (record_id, category, spec, quantity, sort_order) VALUES (?, ?, ?, ?, ?)",
+                    (used_id, cat, sp, qty, max_sort + 1),
+                )
+    else:
+        # Full replace: insert all items in template order
+        sort_idx = 0
+        for cat in PRESET_TEMPLATES:
+            for sp in PRESET_TEMPLATES[cat]:
+                key = _item_key(cat, sp)
+                qty = qty_map.get(key, 0)
+                db.execute(
+                    """INSERT INTO record_items
+                       (record_id, category, spec, quantity, sort_order)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (used_id, cat, sp, qty, sort_idx),
+                )
+                sort_idx += 1
 
     db.commit()
 

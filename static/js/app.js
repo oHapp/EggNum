@@ -6,6 +6,7 @@ var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
+var lastSaved = {};  // snapshot of last saved values, for delta detection
 
 document.addEventListener('DOMContentLoaded', function() {
   // Init quantity controllers
@@ -103,13 +104,21 @@ async function autoLoadToday() {
     }
 
     showAutoLoadBar('📥 已加载今日数据', true);
+    snapshotValues();
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
   } finally {
-    // Delay pageReady to prevent spurious auto-save during load
     setTimeout(function() { pageReady = true; }, 300);
   }
+}
+
+function snapshotValues() {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    lastSaved[key] = display ? (parseInt(display.value) || 0) : 0;
+  });
 }
 
 // ── Auto-save ──
@@ -155,6 +164,19 @@ function submitToBackend() {
   var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows };
   if (todayRecordId) body.record_id = todayRecordId;
 
+  // Send only changed items to avoid overwriting concurrent edits
+  var changed = [];
+  for (var i = 0; i < rows.length; i++) {
+    var key = rows[i].category + '_' + rows[i].spec;
+    if (lastSaved[key] !== rows[i].quantity) {
+      changed.push(rows[i]);
+    }
+  }
+  if (changed.length > 0 && changed.length < rows.length) {
+    body.items = changed;
+    body.merge = true;  // tell server to merge, not replace
+  }
+
   return fetch('/api/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -171,6 +193,7 @@ function submitToBackend() {
     if (data.success) {
       todayRecordId = data.record_id;
       updateDateDisplay();
+      snapshotValues();  // update snapshot after successful save
       return data;
     }
     throw new Error(data.error || 'unknown');

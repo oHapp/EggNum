@@ -4,64 +4,80 @@
 
 {% block content %}
 
-<!-- Auto-load status bar (hidden by default) -->
-<div id="auto-load-bar" class="auto-load-bar" style="display:flex;">
-  <span class="auto-load-bar__text"></span>
-  <button type="button" class="auto-load-bar__dismiss" title="清除已加载数据">&times;</button>
-</div>
+<!-- Tab bar -->
+<nav class="tab-bar">
+  <button class="tab-btn tab-btn--active" data-tab="report">📋 出库登记</button>
+  <button class="tab-btn" data-tab="reserve">📦 库存留存</button>
+</nav>
 
-<!-- Store & Date bar -->
-<div class="meta-bar">
-  <span class="meta-bar__store">{{ store_name }}</span>
-  <span class="meta-bar__date">{{ date_display }}</span>
-</div>
+<!-- ==================== REPORT PAGE ==================== -->
+<div class="tab-page" id="tab-report">
 
-<!-- Egg category groups -->
-{% for category, specs in templates.items() %}
-<div class="category-group">
-  <button class="category-group__header" type="button">
-    {{ category }}
-  </button>
-  <div class="category-group__body">
-    {% for spec in specs %}
-    <div class="spec-row is-empty"
-         data-category="{{ category }}"
-         data-spec="{{ spec }}">
-      <span class="spec-label">{{ category }}{{ spec }}枚</span>
-      <div class="quantity-control">
-        <button type="button"
-                class="btn-qty btn-minus"
-                aria-label="减少{{ category }}{{ spec }}枚">−</button>
-        <input type="text"
-               class="qty-display is-zero"
-               inputmode="numeric"
-               pattern="[0-9]*"
-               min="0" max="999"
-               value="0"
-               autocomplete="off">
-        <button type="button"
-                class="btn-qty btn-plus"
-                aria-label="增加{{ category }}{{ spec }}枚">+</button>
+  <div id="auto-load-bar" class="auto-load-bar" style="display:flex;">
+    <span class="auto-load-bar__text">⏳ 加载中...</span>
+    <button type="button" class="auto-load-bar__dismiss" title="清除">&times;</button>
+  </div>
+
+  <div class="meta-bar">
+    <span class="meta-bar__store">{{ store_name }}</span>
+    <span class="meta-bar__date">{{ date_display }}</span>
+  </div>
+
+  {% for category, specs in templates.items() %}
+  <div class="category-group">
+    <button class="category-group__header" type="button">{{ category }}</button>
+    <div class="category-group__body">
+      {% for spec in specs %}
+      <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
+        <span class="spec-label">{{ category }}{{ spec }}枚</span>
+        <div class="quantity-control">
+          <button type="button" class="btn-qty btn-minus" aria-label="减少">−</button>
+          <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="999" value="0" autocomplete="off">
+          <button type="button" class="btn-qty btn-plus" aria-label="增加">+</button>
+        </div>
       </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <div class="main-actions">
+    <div class="main-actions__row">
+      <button type="button" id="btn-save" class="btn-save">💾 保存</button>
+      <button type="button" id="btn-generate" class="btn-primary">📋 生成并复制</button>
+    </div>
+    <a href="/history" class="btn-secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">📜 查看历史记录</a>
   </div>
 </div>
-{% endfor %}
 
-<!-- Action buttons -->
-<div class="main-actions">
-  <div class="main-actions__row">
-    <button type="button" id="btn-save" class="btn-save">
-      💾 保存
-    </button>
-    <button type="button" id="btn-generate" class="btn-primary">
-      📋 生成并复制
-    </button>
+<!-- ==================== RESERVE PAGE ==================== -->
+<div class="tab-page" id="tab-reserve" style="display:none;">
+
+  <div id="reserve-bar" class="auto-load-bar" style="display:flex;">
+    <span class="auto-load-bar__text">📦 库存留存（跨天累计）</span>
   </div>
-  <a href="/history" class="btn-secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">
-    📜 查看历史记录
-  </a>
+
+  {% for category, specs in templates.items() %}
+  <div class="category-group">
+    <button class="category-group__header" type="button">{{ category }}</button>
+    <div class="category-group__body">
+      {% for spec in specs %}
+      <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
+        <span class="spec-label">{{ category }}{{ spec }}枚</span>
+        <div class="quantity-control">
+          <button type="button" class="btn-qty btn-minus reserve-minus" aria-label="从留存取出">−</button>
+          <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="9999" value="0" autocomplete="off" readonly>
+          <button type="button" class="btn-qty btn-plus reserve-plus" aria-label="存入留存">+</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="reserve-hint">
+    💡 存入留存会从今日出库扣减；取出留存会加回今日出库。留存数量跨天累计不清零。
+  </div>
 </div>
 
 {% endblock %}
@@ -69,4 +85,6 @@
 {% block scripts %}
 <script src="/static/js/quantity.js?v=13"></script>
 <script src="/static/js/app.js?v=13"></script>
+<script src="/static/js/reserve.js?v=13"></script>
+<script src="/static/js/tabs.js?v=13"></script>
 {% endblock %}

@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       if (typeof refreshReportHints === 'function') refreshReportHints();
       if (typeof refreshReserveHints === 'function') refreshReserveHints();
+      if (typeof updateReportTotals === 'function') updateReportTotals();
+      if (typeof updateReserveTotals === 'function') updateReserveTotals();
     });
   });
 });

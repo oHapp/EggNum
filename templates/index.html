@@ -20,6 +20,7 @@
 
   <div class="meta-bar">
     <span class="meta-bar__store">{{ store_name }}</span>
+    <span class="meta-bar__total">合计: 0</span>
     <div class="meta-bar__date-wrap">
       <span class="meta-bar__date">{{ date_display }}</span>
       <button class="meta-bar__reset-date" title="回到今天" style="display:none;">↺</button>
@@ -28,12 +29,15 @@
 
   {% for category, specs in templates.items() %}
   <div class="category-group">
-    <button class="category-group__header" type="button">{{ category }}</button>
+    <button class="category-group__header" type="button">
+      {{ category }}
+      <span class="category-total">0</span>
+    </button>
     <div class="category-group__body">
       {% for spec in specs %}
       <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
         <span class="spec-label">{{ category }}{{ spec }}枚</span>
-        <span class="reserve-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">留存: -</span>
+        <span class="reserve-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">留存: 0</span>
         <div class="quantity-control">
           <button type="button" class="btn-qty btn-minus" aria-label="减少">−</button>
           <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="999" value="0" autocomplete="off">
@@ -63,12 +67,15 @@
 
   {% for category, specs in templates.items() %}
   <div class="category-group">
-    <button class="category-group__header" type="button">{{ category }}</button>
+    <button class="category-group__header" type="button">
+      {{ category }}
+      <span class="category-total">0</span>
+    </button>
     <div class="category-group__body">
       {% for spec in specs %}
       <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
         <span class="spec-label">{{ category }}{{ spec }}枚</span>
-        <span class="report-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">出库: -</span>
+        <span class="report-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">出库: 0</span>
         <div class="quantity-control">
           <button type="button" class="btn-qty btn-minus reserve-minus" aria-label="从留存取出">−</button>
           <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="9999" value="0" autocomplete="off" readonly>

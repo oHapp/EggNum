@@ -193,18 +193,21 @@ function snapshotValues() {
   });
 }
 
-/** Copy reserve quantities to hints on report tab */
+/** Copy reserve quantities to hints on report tab (fetches from API) */
 function refreshReserveHints() {
-  document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
-    var cat = hint.dataset.category;
-    var sp = hint.dataset.spec;
-    var reserveRow = document.querySelector(
-      '#tab-reserve .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
-    );
-    if (!reserveRow) { hint.textContent = '留存: 0'; return; }
-    var display = reserveRow.querySelector('.qty-display');
-    hint.textContent = '留存: ' + (display ? display.value : '0');
-  });
+  fetch('/api/reserve', { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var map = {};
+      for (var i = 0; i < data.items.length; i++) {
+        map[data.items[i].category + '_' + data.items[i].spec] = data.items[i].quantity;
+      }
+      document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
+        var key = hint.dataset.category + '_' + hint.dataset.spec;
+        hint.textContent = '留存: ' + (map[key] || 0);
+      });
+    })
+    .catch(function() {});
 }
 
 // ── Auto-save ──

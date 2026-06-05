@@ -101,13 +101,14 @@ body {
   background: #e8f5e9;
 }
 
-/* --- Report qty hint on reserve rows --- */
-.report-qty-hint {
+/* --- Cross-tab qty hints --- */
+.report-qty-hint,
+.reserve-qty-hint {
   font-size: 11px;
   color: #999;
   margin-right: 6px;
   white-space: nowrap;
-  min-width: 50px;
+  min-width: 48px;
   text-align: right;
 }
 

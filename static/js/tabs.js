@@ -15,13 +15,12 @@ document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.tab-page').forEach(function(p) { p.style.display = 'none'; });
       document.getElementById('tab-' + tab).style.display = '';
 
-      // When switching, refresh displays
+      // When switching, refresh cross-tab hints
       if (tab === 'report' && typeof updateDateDisplay === 'function') {
         updateDateDisplay();
       }
-      if (tab === 'reserve' && typeof refreshReportHints === 'function') {
-        refreshReportHints();
-      }
+      if (typeof refreshReportHints === 'function') refreshReportHints();
+      if (typeof refreshReserveHints === 'function') refreshReserveHints();
     });
   });
 });

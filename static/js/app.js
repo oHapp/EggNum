@@ -115,6 +115,7 @@ async function autoLoadToday() {
 
     showAutoLoadBar('📥 已加载今日数据', true);
     snapshotValues();
+    refreshReserveHints();
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
@@ -128,6 +129,21 @@ function snapshotValues() {
     var key = row.dataset.category + '_' + row.dataset.spec;
     var display = row.querySelector('.qty-display');
     lastSaved[key] = display ? (parseInt(display.value) || 0) : 0;
+  });
+}
+
+/** Copy reserve quantities to hints on report tab */
+function refreshReserveHints() {
+  document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
+    var cat = hint.dataset.category;
+    var sp = hint.dataset.spec;
+    var reserveRow = document.querySelector(
+      '#tab-reserve .spec-row[data-category="' + escapeAttr(cat) + '"][data-spec="' + sp + '"]'
+    );
+    if (!reserveRow) { hint.textContent = '留存: -'; return; }
+    var display = reserveRow.querySelector('.qty-display');
+    var val = display ? parseInt(display.value) || 0 : 0;
+    hint.textContent = '留存: ' + (val > 0 ? val : '-');
   });
 }
 

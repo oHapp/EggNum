@@ -30,6 +30,7 @@
       {% for spec in specs %}
       <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
         <span class="spec-label">{{ category }}{{ spec }}枚</span>
+        <span class="reserve-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">留存: -</span>
         <div class="quantity-control">
           <button type="button" class="btn-qty btn-minus" aria-label="减少">−</button>
           <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="999" value="0" autocomplete="off">

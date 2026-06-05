@@ -117,6 +117,7 @@ function handleReserveDelta(row, delta) {
       // Sync report page display
       syncReportDisplay(category, spec, -delta);
       refreshReportHints();
+      if (typeof refreshReserveHints === 'function') refreshReserveHints();
       showReserveToast(delta > 0 ? '📦 +1 已存入留存' : '📤 -1 已取出留存');
     }
   }).catch(function(err) {

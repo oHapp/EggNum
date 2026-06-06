@@ -359,8 +359,14 @@ body {
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+  touch-action: manipulation;
   transition: background 0.1s, transform 0.1s;
   flex-shrink: 0;
+}
+
+/* Prevent iOS double-tap zoom on all interactive elements */
+button, input, textarea, .qty-display, .tab-btn, .category-group__header, .history-card__btn {
+  touch-action: manipulation;
 }
 
 .btn-qty:active,

@@ -1,119 +1,149 @@
 /**
- * 考勤打卡 — 时间选择、分段编辑、导出 Excel
+ * 考勤打卡 v2
  */
 document.addEventListener('DOMContentLoaded', function() {
-  initAttendancePage();
+  initAttendance();
   document.getElementById('att-save').addEventListener('click', saveAttendance);
   document.getElementById('att-add-slot').addEventListener('click', addSlot);
   document.getElementById('att-export-btn').addEventListener('click', exportExcel);
+  document.getElementById('att-leave-btn').addEventListener('click', quickLeave);
 
-  // Date input change → reload entries
+  // Date change → reload
   document.getElementById('att-date-input').addEventListener('change', function() {
     document.getElementById('att-date-text').textContent = this.value;
-    loadAttendanceEntries();
+    loadEntries();
   });
 
-  // 30-min step toggle
+  // 30-min toggle
   document.getElementById('att-step-30').addEventListener('change', function() {
-    var step = this.checked ? 1800 : 60;
-    document.querySelectorAll('.att-slot__start, .att-slot__end').forEach(function(el) {
-      el.step = step;
-    });
+    applyStepToAll();
+  });
+
+  // Listen for time changes on all slots
+  document.getElementById('att-slots').addEventListener('change', function(e) {
+    var slot = e.target.closest('.att-slot');
+    if (!slot) return;
+    if (e.target.classList.contains('att-slot__start') || e.target.classList.contains('att-slot__end')) {
+      if (e.target.classList.contains('att-slot__start')) autoEndTime(slot);
+      enforceStep(e.target);
+      updateSlotHours(slot);
+    }
   });
 
   // Export date defaults
   var today = localDateStr();
   document.getElementById('att-export-from').value = today;
-  var to = new Date();
-  to.setDate(to.getDate() + 30);
+  var to = new Date(); to.setDate(to.getDate() + 30);
   document.getElementById('att-export-to').value = localDateStr(to);
-
-  // Auto-update hours on time change
-  document.getElementById('att-slots').addEventListener('change', function(e) {
-    if (e.target.classList.contains('att-slot__start') || e.target.classList.contains('att-slot__end')) {
-      updateSlotHours(e.target.closest('.att-slot'));
-    }
-  });
 });
 
-function initAttendancePage() {
+// ── Init ──
+function initAttendance() {
   var now = new Date();
   var today = localDateStr(now);
   document.getElementById('att-date-text').textContent = today;
   document.getElementById('att-date-input').value = today;
 
-  // Set default time slot to current time rounded +2h
-  var rounded = roundTime(now.getHours(), now.getMinutes());
-  var startH = rounded.h, startM = rounded.m;
-  var endH = startH + 2, endM = startM;
-  if (endH >= 24) { endH -= 24; }
-
-  var slot = document.querySelector('.att-slot');
-  var fmt = function(h, m) { return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
-  slot.querySelector('.att-slot__start').value = fmt(startH, startM);
-  slot.querySelector('.att-slot__end').value = fmt(endH, endM);
-  updateSlotHours(slot);
-
-  loadAttendanceEntries();
+  resetToSingleSlot();
+  loadEntries();
 }
 
-// ── Time rounding (30-min base) ──
+function resetToSingleSlot() {
+  var slotsDiv = document.getElementById('att-slots');
+  slotsDiv.innerHTML = '';
+
+  var now = new Date();
+  var r = roundTime(now.getHours(), now.getMinutes());
+  var eh = r.h + 2, em = r.m;
+  if (eh >= 24) eh -= 24;
+
+  var div = document.createElement('div');
+  div.className = 'att-slot';
+  div.innerHTML =
+    '<span class="att-slot__label">时段 1</span>' +
+    '<input type="time" class="att-slot__start" value="' + fmtTime(r.h, r.m) + '">' +
+    '<span class="att-slot__sep">至</span>' +
+    '<input type="time" class="att-slot__end" value="' + fmtTime(eh, em) + '">' +
+    '<span class="att-slot__hours">2h</span>' +
+    '<button type="button" class="att-slot__remove" title="删除" style="display:none;">✕</button>';
+  slotsDiv.appendChild(div);
+  applyStepToAll();
+}
+
+// ── Time helpers ──
 function roundTime(h, m) {
-  var totalM = h * 60 + m;
-  var remainder = totalM % 30;
-  if (remainder <= 15) {
-    totalM -= remainder;       // down to :00 or :30
-  } else {
-    totalM += (30 - remainder); // up to :30 or :00
-  }
-  totalM = totalM % (24 * 60);
-  return { h: Math.floor(totalM / 60), m: totalM % 60 };
+  var total = h * 60 + m;
+  var rem = total % 30;
+  if (rem <= 15) total -= rem;
+  else total += (30 - rem);
+  total = total % (24 * 60);
+  return { h: Math.floor(total / 60), m: total % 60 };
 }
 
-function localDateStr(date) {
-  date = date || new Date();
-  return date.getFullYear() + '-' +
-    String(date.getMonth() + 1).padStart(2, '0') + '-' +
-    String(date.getDate()).padStart(2, '0');
+function fmtTime(h, m) { return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0'); }
+function localDateStr(d) { d = d || new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function calcHours(s, e) {
+  var sm = parseInt(s.split(':')[0])*60 + parseInt(s.split(':')[1]);
+  var em = parseInt(e.split(':')[0])*60 + parseInt(e.split(':')[1]);
+  if (em <= sm) em += 1440;
+  return Math.round((em - sm) / 6) / 10;
 }
 
-function calcHours(startVal, endVal) {
-  var s = startVal.split(':'), e = endVal.split(':');
-  var sm = parseInt(s[0]) * 60 + parseInt(s[1]);
-  var em = parseInt(e[0]) * 60 + parseInt(e[1]);
-  if (em <= sm) em += 24 * 60;
-  return Math.round((em - sm) / 6) / 10; // round to 0.1h
+// ── 30-min enforcement ──
+function enforceStep(input) {
+  if (!document.getElementById('att-step-30').checked) return;
+  var parts = input.value.split(':');
+  if (parts.length !== 2) return;
+  var h = parseInt(parts[0]), m = parseInt(parts[1]);
+  var r = roundTime(h, m);
+  input.value = fmtTime(r.h, r.m);
+}
+
+function applyStepToAll() {
+  document.querySelectorAll('.att-slot__start, .att-slot__end').forEach(function(el) {
+    enforceStep(el);
+  });
+}
+
+// ── Auto end = start + 2h ──
+function autoEndTime(slot) {
+  var startVal = slot.querySelector('.att-slot__start').value;
+  if (!startVal) return;
+  var parts = startVal.split(':');
+  var h = parseInt(parts[0]), m = parseInt(parts[1]);
+  var total = h * 60 + m + 120; // +2h
+  total = total % (24 * 60);
+  var eh = Math.floor(total / 60), em = total % 60;
+  slot.querySelector('.att-slot__end').value = fmtTime(eh, em);
 }
 
 // ── Slots ──
 function addSlot() {
-  var slots = document.getElementById('att-slots');
-  var count = slots.querySelectorAll('.att-slot').length + 1;
+  var slotsDiv = document.getElementById('att-slots');
+  var count = slotsDiv.querySelectorAll('.att-slot').length + 1;
   var div = document.createElement('div');
   div.className = 'att-slot';
   div.innerHTML =
     '<span class="att-slot__label">时段 ' + count + '</span>' +
-    '<input type="time" class="att-slot__start" step="1800" value="09:00">' +
+    '<input type="time" class="att-slot__start" value="09:00">' +
     '<span class="att-slot__sep">至</span>' +
-    '<input type="time" class="att-slot__end" step="1800" value="11:00">' +
+    '<input type="time" class="att-slot__end" value="11:00">' +
     '<span class="att-slot__hours">2h</span>' +
     '<button type="button" class="att-slot__remove" title="删除">✕</button>';
-  slots.appendChild(div);
+  slotsDiv.appendChild(div);
 
   div.querySelector('.att-slot__remove').addEventListener('click', function() {
     div.remove();
     renumberSlots();
   });
 
-  // Apply current step setting
-  var step = document.getElementById('att-step-30').checked ? 1800 : 60;
-  div.querySelector('.att-slot__start').step = step;
-  div.querySelector('.att-slot__end').step = step;
+  applyStepToAll();
   updateSlotHours(div);
 
-  // Show all remove buttons when more than 1 slot
-  if (slots.querySelectorAll('.att-slot').length > 1) {
-    slots.querySelectorAll('.att-slot__remove').forEach(function(b) { b.style.display = ''; });
+  // Show all remove buttons
+  var allSlots = slotsDiv.querySelectorAll('.att-slot');
+  if (allSlots.length > 1) {
+    allSlots.forEach(function(s) { s.querySelector('.att-slot__remove').style.display = ''; });
   }
 }
 
@@ -122,16 +152,31 @@ function renumberSlots() {
   if (slots.length <= 1) {
     slots.forEach(function(s) { s.querySelector('.att-slot__remove').style.display = 'none'; });
   }
-  slots.forEach(function(s, i) {
-    s.querySelector('.att-slot__label').textContent = '时段 ' + (i + 1);
-  });
+  slots.forEach(function(s, i) { s.querySelector('.att-slot__label').textContent = '时段 ' + (i+1); });
 }
 
 function updateSlotHours(slot) {
   var start = slot.querySelector('.att-slot__start').value;
   var end = slot.querySelector('.att-slot__end').value;
-  var h = calcHours(start, end);
-  slot.querySelector('.att-slot__hours').textContent = h + 'h';
+  if (start && end) slot.querySelector('.att-slot__hours').textContent = calcHours(start, end) + 'h';
+}
+
+// ── Quick leave ──
+function quickLeave() {
+  document.getElementById('att-note').value = '请假';
+  var slotsDiv = document.getElementById('att-slots');
+  slotsDiv.innerHTML = '';
+  var div = document.createElement('div');
+  div.className = 'att-slot';
+  div.innerHTML =
+    '<span class="att-slot__label">时段 1</span>' +
+    '<input type="time" class="att-slot__start" value="00:00">' +
+    '<span class="att-slot__sep">至</span>' +
+    '<input type="time" class="att-slot__end" value="00:00">' +
+    '<span class="att-slot__hours">0h</span>' +
+    '<button type="button" class="att-slot__remove" title="删除" style="display:none;">✕</button>';
+  slotsDiv.appendChild(div);
+  applyStepToAll();
 }
 
 // ── Save ──
@@ -146,8 +191,12 @@ async function saveAttendance() {
     var start = s.querySelector('.att-slot__start').value;
     var end = s.querySelector('.att-slot__end').value;
     if (!start || !end) continue;
-
+    enforceStep(s.querySelector('.att-slot__start'));
+    enforceStep(s.querySelector('.att-slot__end'));
+    start = s.querySelector('.att-slot__start').value;
+    end = s.querySelector('.att-slot__end').value;
     var hours = calcHours(start, end);
+
     try {
       await fetch('/api/attendance', {
         method: 'POST',
@@ -156,111 +205,77 @@ async function saveAttendance() {
         cache: 'no-store'
       });
       saved++;
-    } catch (err) {
-      console.error('saveAttendance:', err);
-    }
+    } catch (err) { console.error(err); }
   }
 
   if (saved > 0) {
-    if (typeof showToast === 'function') showToast('✅ 已保存 ' + saved + ' 条记录');
+    if (typeof showToast === 'function') showToast('✅ 已保存 ' + saved + ' 条');
     document.getElementById('att-note').value = '';
-    // Reset to single slot with current time
-    var slotsDiv = document.getElementById('att-slots');
-    slotsDiv.innerHTML = '';
-    var div = document.createElement('div');
-    div.className = 'att-slot';
-    var now = new Date();
-    var r = roundTime(now.getHours(), now.getMinutes());
-    var eh = r.h + 2, em = r.m;
-    if (eh >= 24) eh -= 24;
-    var fmt = function(h, m) { return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); };
-    div.innerHTML =
-      '<span class="att-slot__label">时段 1</span>' +
-      '<input type="time" class="att-slot__start" step="1800" value="' + fmt(r.h, r.m) + '">' +
-      '<span class="att-slot__sep">至</span>' +
-      '<input type="time" class="att-slot__end" step="1800" value="' + fmt(eh, em) + '">' +
-      '<span class="att-slot__hours">2h</span>' +
-      '<button type="button" class="att-slot__remove" title="删除" style="display:none;">✕</button>';
-    slotsDiv.appendChild(div);
-    loadAttendanceEntries();
+    resetToSingleSlot();
+    loadEntries();
   } else {
     if (typeof showToast === 'function') showToast('⚠️ 请填写时间');
   }
 }
 
-// ── Load entries ──
-async function loadAttendanceEntries() {
+// ── Load ──
+async function loadEntries() {
   var date = document.getElementById('att-date-input').value;
   try {
     var resp = await fetch('/api/attendance?from=' + date + '&to=' + date, { cache: 'no-store' });
     var data = await resp.json();
-    renderEntries(data.entries || []);
-  } catch (err) {
-    console.error('loadAttendance:', err);
-  }
-  // Also load recent 3 days
-  loadRecentEntries();
+    renderDateGroup(date, data.entries || []);
+  } catch (err) { console.error(err); }
+  loadRecent();
 }
 
-async function loadRecentEntries() {
+async function loadRecent() {
   try {
     var resp = await fetch('/api/attendance?days=3', { cache: 'no-store' });
     var data = await resp.json();
-    renderRecentEntries(data.entries || []);
-  } catch (err) {
-    console.error('loadRecentEntries:', err);
-  }
+    renderRecent(data.entries || []);
+  } catch (err) { console.error(err); }
 }
 
-function renderEntries(entries) {
-  // Just update today's entries highlight
+function renderDateGroup(date, entries) {
+  // Today's entries are rendered inside loadRecent
 }
 
-function renderRecentEntries(entries) {
+function renderRecent(entries) {
   var container = document.getElementById('att-entries');
-  if (entries.length === 0) {
+  if (!entries.length) {
     container.innerHTML = '<div class="att-empty">暂无记录</div>';
     return;
   }
-
-  // Group by date
   var groups = {};
   entries.forEach(function(e) {
     if (!groups[e.record_date]) groups[e.record_date] = [];
     groups[e.record_date].push(e);
   });
-
-  var html = '';
   var dates = Object.keys(groups).sort().reverse();
+  var html = '';
   dates.forEach(function(d) {
-    var dayTotal = 0;
+    var total = 0;
     var rows = '';
     groups[d].forEach(function(e) {
-      dayTotal += e.hours;
+      total += e.hours;
       rows += '<div class="att-entry" data-id="' + e.id + '">' +
         '<span class="att-entry__time">' + e.time_start + '-' + e.time_end + '</span>' +
         '<span class="att-entry__hours">' + e.hours + 'h</span>' +
         (e.note ? '<span class="att-entry__note">' + e.note + '</span>' : '') +
-        '<button class="att-entry__del" data-id="' + e.id + '">✕</button>' +
-        '</div>';
+        '<button class="att-entry__del" data-id="' + e.id + '">✕</button></div>';
     });
     html += '<div class="att-day">' +
-      '<div class="att-day__head">' + d + ' <span class="att-day__total">' + dayTotal.toFixed(1) + 'h</span></div>' +
+      '<div class="att-day__head">' + d + ' <span class="att-day__total">' + total.toFixed(1) + 'h</span></div>' +
       rows + '</div>';
   });
-
   container.innerHTML = html;
 
-  // Delete buttons
   container.querySelectorAll('.att-entry__del').forEach(function(btn) {
     btn.addEventListener('click', function() {
-      var id = btn.dataset.id;
-      if (confirm('删除这条记录？')) {
-        fetch('/api/attendance/' + id, { method: 'DELETE', cache: 'no-store' }).then(function() {
-          loadAttendanceEntries();
-          loadRecentEntries();
-        });
-      }
+      if (!confirm('删除？')) return;
+      fetch('/api/attendance/' + btn.dataset.id, { method: 'DELETE', cache: 'no-store' })
+        .then(function() { loadRecent(); });
     });
   });
 }

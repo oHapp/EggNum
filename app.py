@@ -127,6 +127,19 @@ def init_db() -> None:
             updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(category, spec)
         );
+
+        CREATE TABLE IF NOT EXISTS attendance (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            time_start  TEXT NOT NULL,
+            time_end    TEXT NOT NULL,
+            hours       REAL NOT NULL DEFAULT 0,
+            note        TEXT DEFAULT '',
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_attendance_date
+            ON attendance(record_date);
     """)
     db.commit()
 
@@ -355,6 +368,177 @@ def api_reserve_update():
 
     db.commit()
     return jsonify({"success": True, "quantity": new_qty})
+
+
+# ── Attendance (考勤打卡) ──
+
+
+@app.route("/api/attendance")
+def api_attendance_list():
+    """List attendance entries. Query: ?days=3 (default 3 days) or ?from=&to="""
+    db = get_db()
+    days = request.args.get("days", type=int)
+    date_from = request.args.get("from")
+    date_to = request.args.get("to")
+
+    if date_from and date_to:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date BETWEEN ? AND ? ORDER BY record_date DESC, time_start",
+            (date_from, date_to),
+        ).fetchall()
+    elif days:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date >= date('now', ?) ORDER BY record_date DESC, time_start",
+            (f"-{days} days",),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
+        ).fetchall()
+
+    return jsonify({"entries": [dict(r) for r in rows]})
+
+
+@app.route("/api/attendance", methods=["POST"])
+def api_attendance_create():
+    """Create an attendance entry. Body: {record_date, time_start, time_end, hours, note}"""
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    record_date = data.get("record_date", date.today().isoformat())
+    time_start = data.get("time_start", "")
+    time_end = data.get("time_end", "")
+    hours = float(data.get("hours", 0))
+    note = data.get("note", "")
+
+    if not time_start or not time_end:
+        return jsonify({"success": False, "error": "请选择时间"}), 400
+
+    db = get_db()
+    cursor = db.execute(
+        """INSERT INTO attendance (record_date, time_start, time_end, hours, note)
+           VALUES (?, ?, ?, ?, ?)""",
+        (record_date, time_start, time_end, hours, note),
+    )
+    db.commit()
+
+    return jsonify({"success": True, "id": cursor.lastrowid})
+
+
+@app.route("/api/attendance/<int:entry_id>", methods=["PUT", "DELETE"])
+def api_attendance_modify(entry_id: int):
+    """Update or delete an attendance entry."""
+    db = get_db()
+    row = db.execute("SELECT id FROM attendance WHERE id = ?", (entry_id,)).fetchone()
+    if not row:
+        return jsonify({"success": False, "error": "记录不存在"}), 404
+
+    if request.method == "DELETE":
+        db.execute("DELETE FROM attendance WHERE id = ?", (entry_id,))
+        db.commit()
+        return jsonify({"success": True})
+
+    # PUT: update
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    updates = []
+    params = []
+    for field in ["record_date", "time_start", "time_end", "hours", "note"]:
+        if field in data:
+            updates.append(f"{field} = ?")
+            val = data[field]
+            if field == "hours":
+                val = float(val)
+            params.append(val)
+
+    if not updates:
+        return jsonify({"success": False, "error": "无更新字段"}), 400
+
+    params.append(entry_id)
+    db.execute(
+        f"UPDATE attendance SET {', '.join(updates)} WHERE id = ?", params
+    )
+    db.commit()
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/attendance/export")
+def api_attendance_export():
+    """Generate Excel attendance report. Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD"""
+    import io as _io
+
+    try:
+        import openpyxl as _xl
+    except ImportError:
+        return jsonify({"success": False, "error": "openpyxl 未安装"}), 500
+
+    date_from = request.args.get("from", "")
+    date_to = request.args.get("to", "")
+
+    if not date_from or not date_to:
+        return jsonify({"success": False, "error": "请指定起止日期"}), 400
+
+    db = get_db()
+    rows = db.execute(
+        """SELECT * FROM attendance
+           WHERE record_date BETWEEN ? AND ?
+           ORDER BY record_date, time_start""",
+        (date_from, date_to),
+    ).fetchall()
+
+    # Build Excel
+    wb = _xl.Workbook()
+    ws = wb.active
+    ws.title = "考勤报表"
+
+    # Headers
+    ws["A1"] = "日期"
+    ws["B1"] = "时间段"
+    ws["C1"] = "时长"
+    ws["D1"] = "备注"
+
+    # Group by date
+    from collections import defaultdict
+    groups: dict[str, list] = defaultdict(list)
+    for r in rows:
+        groups[r["record_date"]].append(r)
+
+    row_idx = 2
+    total_hours = 0.0
+    for d in sorted(groups.keys()):
+        time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
+        day_hours = sum(r["hours"] for r in groups[d])
+        notes = "、".join(r["note"] for r in groups[d] if r["note"])
+        total_hours += day_hours
+
+        ws.cell(row=row_idx, column=1, value=d)
+        ws.cell(row=row_idx, column=2, value=time_ranges)
+        ws.cell(row=row_idx, column=3, value=day_hours)
+        ws.cell(row=row_idx, column=4, value=notes)
+        row_idx += 1
+
+    # Total row
+    ws.cell(row=row_idx, column=1, value="合计")
+    ws.cell(row=row_idx, column=3, value=round(total_hours, 2))
+
+    # Save to buffer
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from flask import send_file
+
+    filename = f"考勤报表_{date_from}_to_{date_to}.xlsx"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route("/api/debug")

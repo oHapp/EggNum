@@ -5,9 +5,10 @@
 {% block content %}
 
 <!-- Tab bar -->
-<nav class="tab-bar">
-  <button class="tab-btn tab-btn--active" data-tab="report">📋 出库登记</button>
-  <button class="tab-btn" data-tab="reserve">📦 库存留存</button>
+<nav class="tab-bar tab-bar--scroll">
+  <button class="tab-btn tab-btn--active" data-tab="report">📋 出库</button>
+  <button class="tab-btn" data-tab="reserve">📦 库存</button>
+  <button class="tab-btn" data-tab="attendance">🕐 考勤</button>
 </nav>
 
 <!-- ==================== REPORT PAGE ==================== -->
@@ -92,12 +93,64 @@
   </div>
 </div>
 
+<!-- ==================== ATTENDANCE PAGE ==================== -->
+<div class="tab-page" id="tab-attendance" style="display:none;">
+
+  <div class="att-form">
+    <div class="att-form__date-row">
+      <label>📅</label>
+      <span class="att-form__date-text" id="att-date-text"></span>
+      <input type="date" id="att-date-input" class="att-form__date-input">
+    </div>
+
+    <div id="att-slots">
+      <div class="att-slot">
+        <span class="att-slot__label">时段 1</span>
+        <input type="time" class="att-slot__start" step="1800" value="09:00">
+        <span class="att-slot__sep">至</span>
+        <input type="time" class="att-slot__end" step="1800" value="11:00">
+        <span class="att-slot__hours">2h</span>
+        <button type="button" class="att-slot__remove" title="删除" style="display:none;">✕</button>
+      </div>
+    </div>
+
+    <div class="att-form__row">
+      <button type="button" id="att-add-slot" class="att-add-btn">+ 添加时段</button>
+      <label class="att-step-label">
+        <input type="checkbox" id="att-step-30" checked> 30分步进
+      </label>
+    </div>
+
+    <div class="att-form__row">
+      <input type="text" id="att-note" class="att-note" placeholder="备注（可选）" autocomplete="off">
+      <button type="button" id="att-save" class="att-save-btn">💾 保存</button>
+    </div>
+  </div>
+
+  <div class="att-list" id="att-list">
+    <div class="att-list__header">最近记录</div>
+    <div id="att-entries"></div>
+    <a href="/attendance-history" class="btn-secondary" style="display:flex;align-items:center;justify-content:center;text-decoration:none;height:44px;font-size:14px;margin-top:8px;">📜 查看全部</a>
+  </div>
+
+  <div class="att-export">
+    <div class="att-export__row">
+      <label>导出: 从</label>
+      <input type="date" id="att-export-from" class="att-export__date">
+      <label>到</label>
+      <input type="date" id="att-export-to" class="att-export__date">
+    </div>
+    <button type="button" id="att-export-btn" class="btn-primary" style="height:44px;font-size:15px;">📥 导出 Excel</button>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/js/quantity.js?v=13"></script>
 <script src="/static/js/app.js?v=13"></script>
 <script src="/static/js/reserve.js?v=13"></script>
+<script src="/static/js/attendance.js?v=13"></script>
 <script src="/static/js/tabs.js?v=13"></script>
 <script src="/static/js/dev.js?v=13"></script>
 {% endblock %}

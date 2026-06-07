@@ -559,6 +559,7 @@ def api_attendance_export():
     total_hours = 0.0
 
     for d in sorted(groups.keys()):
+        seg_count = len(groups[d])
         time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
         day_hours = sum(r["hours"] for r in groups[d])
         notes = "、".join(r["note"] for r in groups[d] if r["note"])
@@ -568,6 +569,11 @@ def api_attendance_export():
         ws.cell(row=row_idx, column=2).value = time_ranges
         ws.cell(row=row_idx, column=3).value = day_hours
         ws.cell(row=row_idx, column=4).value = notes
+
+        # Multi-segment: increase row height so all text is visible
+        if seg_count > 1:
+            ws.row_dimensions[row_idx].height = 15 * seg_count
+
         row_idx += 1
 
     # Total row — only if not using template (template already has formatted total row)

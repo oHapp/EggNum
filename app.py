@@ -565,12 +565,20 @@ def api_attendance_export():
         notes = "、".join(r["note"] for r in groups[d] if r["note"])
         total_hours += day_hours
 
-        ws.cell(row=row_idx, column=1).value = d
-        ws.cell(row=row_idx, column=2).value = time_ranges
-        ws.cell(row=row_idx, column=3).value = day_hours
-        ws.cell(row=row_idx, column=4).value = notes
+        c_date = ws.cell(row=row_idx, column=1); c_date.value = d
+        c_time = ws.cell(row=row_idx, column=2); c_time.value = time_ranges
+        c_hours = ws.cell(row=row_idx, column=3); c_hours.value = day_hours
+        c_note = ws.cell(row=row_idx, column=4); c_note.value = notes
 
-        # Multi-segment: increase row height so all text is visible
+        # Alignment: date + hours = vertical center; time range = top + wrap
+        v_center = Alignment(vertical="center")
+        top_wrap = Alignment(vertical="top", wrap_text=True)
+        c_date.alignment = v_center
+        c_time.alignment = top_wrap
+        c_hours.alignment = v_center
+        c_note.alignment = v_center
+
+        # Multi-segment: increase row height
         if seg_count > 1:
             ws.row_dimensions[row_idx].height = 15 * seg_count
 

@@ -105,7 +105,7 @@ function applyStepToAll() {
   });
 }
 
-// ── Auto end = start + 2h ──
+// ── Auto end = start + 2h (rounded to 30-min grid) ──
 function autoEndTime(slot) {
   var startVal = slot.querySelector('.att-slot__start').value;
   if (!startVal) return;
@@ -113,8 +113,10 @@ function autoEndTime(slot) {
   var h = parseInt(parts[0]), m = parseInt(parts[1]);
   var total = h * 60 + m + 120; // +2h
   total = total % (24 * 60);
+  // Round to 30-min grid
   var eh = Math.floor(total / 60), em = total % 60;
-  slot.querySelector('.att-slot__end').value = fmtTime(eh, em);
+  var r = roundTime(eh, em);
+  slot.querySelector('.att-slot__end').value = fmtTime(r.h, r.m);
 }
 
 // ── Slots ──

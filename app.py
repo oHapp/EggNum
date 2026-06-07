@@ -525,12 +525,14 @@ def api_attendance_export():
         (date_from, date_to),
     ).fetchall()
 
-    # Load template
+    # Load template (preserve all formatting — just clear values)
     template_path = _os.path.join(_os.path.dirname(__file__), "考勤报表_2026_03_28_to_04_30.xlsx")
-    if _os.path.exists(template_path):
+    has_template = _os.path.exists(template_path)
+
+    if has_template:
         wb = _xl.load_workbook(template_path)
         ws = wb.active
-        # Clear old data (rows 2 to max)
+        # Only clear values in data rows (2 to max_row), keep formatting
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
             for cell in row:
                 cell.value = None
@@ -538,12 +540,9 @@ def api_attendance_export():
         wb = _xl.Workbook()
         ws = wb.active
         ws.title = "考勤报表"
-        # Set up headers + column widths + bold like template
-        headers = ["日期", "时间段", "时长", "备注"]
-        bold_font = Font(bold=True, size=11)
-        for i, h in enumerate(headers, 1):
+        for i, h in enumerate(["日期", "时间段", "时长", "备注"], 1):
             c = ws.cell(row=1, column=i, value=h)
-            c.font = bold_font
+            c.font = Font(bold=True, size=11)
         ws.column_dimensions["A"].width = 14
         ws.column_dimensions["B"].width = 36
         ws.column_dimensions["C"].width = 8
@@ -555,12 +554,9 @@ def api_attendance_export():
     for r in rows:
         groups[r["record_date"]].append(r)
 
-    # Fill data
+    # Fill data — only set values, don't touch formatting
     row_idx = 2
     total_hours = 0.0
-    thin_border = Border(
-        bottom=Side(style="thin", color="D9D9D9")
-    )
 
     for d in sorted(groups.keys()):
         time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
@@ -568,24 +564,23 @@ def api_attendance_export():
         notes = "、".join(r["note"] for r in groups[d] if r["note"])
         total_hours += day_hours
 
-        c1 = ws.cell(row=row_idx, column=1, value=d)
-        c2 = ws.cell(row=row_idx, column=2, value=time_ranges)
-        c3 = ws.cell(row=row_idx, column=3, value=day_hours)
-        c4 = ws.cell(row=row_idx, column=4, value=notes)
-
-        # Match template style: no bold, normal font
-        for c in [c1, c2, c3, c4]:
-            c.font = Font(bold=False, size=11)
-            c.border = thin_border
-
+        ws.cell(row=row_idx, column=1).value = d
+        ws.cell(row=row_idx, column=2).value = time_ranges
+        ws.cell(row=row_idx, column=3).value = day_hours
+        ws.cell(row=row_idx, column=4).value = notes
         row_idx += 1
 
-    # Total row
-    bold_font = Font(bold=True, size=11)
-    c1 = ws.cell(row=row_idx, column=1, value="合计")
-    c3 = ws.cell(row=row_idx, column=3, value=round(total_hours, 2))
-    c1.font = bold_font
-    c3.font = bold_font
+    # Total row — only if not using template (template already has formatted total row)
+    # Write value into the last data+1 row, keeping any existing formatting
+    total_cell_date = ws.cell(row=row_idx, column=1)
+    total_cell_hours = ws.cell(row=row_idx, column=3)
+    total_cell_date.value = "合计"
+    total_cell_hours.value = round(total_hours, 2)
+
+    # If no template, bold the total row
+    if not has_template:
+        total_cell_date.font = Font(bold=True, size=11)
+        total_cell_hours.font = Font(bold=True, size=11)
 
     buf = _io.BytesIO()
     wb.save(buf)

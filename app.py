@@ -127,6 +127,19 @@ def init_db() -> None:
             updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(category, spec)
         );
+
+        CREATE TABLE IF NOT EXISTS attendance (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            time_start  TEXT NOT NULL,
+            time_end    TEXT NOT NULL,
+            hours       REAL NOT NULL DEFAULT 0,
+            note        TEXT DEFAULT '',
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_attendance_date
+            ON attendance(record_date);
     """)
     db.commit()
 
@@ -355,6 +368,247 @@ def api_reserve_update():
 
     db.commit()
     return jsonify({"success": True, "quantity": new_qty})
+
+
+# ── Attendance (考勤打卡) ──
+
+
+@app.route("/api/attendance")
+def api_attendance_list():
+    """List attendance entries. Query: ?days=3 (default 3 days) or ?from=&to="""
+    db = get_db()
+    days = request.args.get("days", type=int)
+    date_from = request.args.get("from")
+    date_to = request.args.get("to")
+
+    if date_from and date_to:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date BETWEEN ? AND ? ORDER BY record_date DESC, time_start",
+            (date_from, date_to),
+        ).fetchall()
+    elif days:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date >= date('now', ?) ORDER BY record_date DESC, time_start",
+            (f"-{days} days",),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
+        ).fetchall()
+
+    return jsonify({"entries": [dict(r) for r in rows]})
+
+
+@app.route("/api/attendance", methods=["POST"])
+def api_attendance_create():
+    """Create an attendance entry. Body: {record_date, time_start, time_end, hours, note}"""
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    record_date = data.get("record_date", date.today().isoformat())
+    time_start = data.get("time_start", "")
+    time_end = data.get("time_end", "")
+    hours = float(data.get("hours", 0))
+    note = data.get("note", "")
+
+    if not time_start or not time_end:
+        return jsonify({"success": False, "error": "请选择时间"}), 400
+
+    db = get_db()
+    cursor = db.execute(
+        """INSERT INTO attendance (record_date, time_start, time_end, hours, note)
+           VALUES (?, ?, ?, ?, ?)""",
+        (record_date, time_start, time_end, hours, note),
+    )
+    db.commit()
+
+    return jsonify({"success": True, "id": cursor.lastrowid})
+
+
+@app.route("/api/attendance/<int:entry_id>", methods=["PUT", "DELETE"])
+def api_attendance_modify(entry_id: int):
+    """Update or delete an attendance entry."""
+    db = get_db()
+    row = db.execute("SELECT id FROM attendance WHERE id = ?", (entry_id,)).fetchone()
+    if not row:
+        return jsonify({"success": False, "error": "记录不存在"}), 404
+
+    if request.method == "DELETE":
+        db.execute("DELETE FROM attendance WHERE id = ?", (entry_id,))
+        db.commit()
+        return jsonify({"success": True})
+
+    # PUT: update
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    updates = []
+    params = []
+    for field in ["record_date", "time_start", "time_end", "hours", "note"]:
+        if field in data:
+            updates.append(f"{field} = ?")
+            val = data[field]
+            if field == "hours":
+                val = float(val)
+            params.append(val)
+
+    if not updates:
+        return jsonify({"success": False, "error": "无更新字段"}), 400
+
+    params.append(entry_id)
+    db.execute(
+        f"UPDATE attendance SET {', '.join(updates)} WHERE id = ?", params
+    )
+    db.commit()
+
+    return jsonify({"success": True})
+
+
+@app.route("/attendance-history")
+def attendance_history_page():
+    """Full attendance history page."""
+    return render_template("attendance_history.html")
+
+
+@app.route("/api/attendance-history")
+def api_attendance_history():
+    """Get all attendance entries for the full history page."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
+    ).fetchall()
+    entries = [dict(r) for r in rows]
+    # Group by date
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for e in entries:
+        d = e["record_date"]
+        if d not in groups:
+            groups[d] = {"entries": [], "total": 0}
+        groups[d]["entries"].append(e)
+        groups[d]["total"] += e["hours"]
+
+    result = []
+    for d, g in groups.items():
+        result.append({
+            "date": d,
+            "total": round(g["total"], 2),
+            "entries": g["entries"],
+        })
+    return jsonify({"groups": result})
+
+
+@app.route("/api/attendance/export")
+def api_attendance_export():
+    """Generate Excel report matching the template format."""
+    import io as _io, os as _os
+
+    try:
+        import openpyxl as _xl
+        from openpyxl.styles import Font, Alignment, Border, Side
+    except ImportError:
+        return jsonify({"success": False, "error": "openpyxl 未安装"}), 500
+
+    date_from = request.args.get("from", "")
+    date_to = request.args.get("to", "")
+
+    if not date_from or not date_to:
+        return jsonify({"success": False, "error": "请指定起止日期"}), 400
+
+    db = get_db()
+    rows = db.execute(
+        """SELECT * FROM attendance
+           WHERE record_date BETWEEN ? AND ?
+           ORDER BY record_date, time_start""",
+        (date_from, date_to),
+    ).fetchall()
+
+    # Load template (preserve all formatting — just clear values)
+    template_path = _os.path.join(_os.path.dirname(__file__), "考勤报表_2026_03_28_to_04_30.xlsx")
+    has_template = _os.path.exists(template_path)
+
+    if has_template:
+        wb = _xl.load_workbook(template_path)
+        ws = wb.active
+        # Only clear values in data rows (2 to max_row), keep formatting
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                cell.value = None
+    else:
+        wb = _xl.Workbook()
+        ws = wb.active
+        ws.title = "考勤报表"
+        for i, h in enumerate(["日期", "时间段", "时长", "备注"], 1):
+            c = ws.cell(row=1, column=i, value=h)
+            c.font = Font(bold=True, size=11)
+        ws.column_dimensions["A"].width = 14
+        ws.column_dimensions["B"].width = 36
+        ws.column_dimensions["C"].width = 8
+        ws.column_dimensions["D"].width = 14
+
+    # Group by date
+    from collections import defaultdict
+    groups: dict[str, list] = defaultdict(list)
+    for r in rows:
+        groups[r["record_date"]].append(r)
+
+    # Fill data — only set values, don't touch formatting
+    row_idx = 2
+    total_hours = 0.0
+
+    for d in sorted(groups.keys()):
+        seg_count = len(groups[d])
+        time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
+        day_hours = sum(r["hours"] for r in groups[d])
+        notes = "、".join(r["note"] for r in groups[d] if r["note"])
+        total_hours += day_hours
+
+        c_date = ws.cell(row=row_idx, column=1); c_date.value = d
+        c_time = ws.cell(row=row_idx, column=2); c_time.value = time_ranges
+        c_hours = ws.cell(row=row_idx, column=3); c_hours.value = day_hours
+        c_note = ws.cell(row=row_idx, column=4); c_note.value = notes
+
+        # Alignment: date + hours = vertical center; time range = top + wrap
+        v_center = Alignment(vertical="center")
+        top_wrap = Alignment(vertical="top", wrap_text=True)
+        c_date.alignment = v_center
+        c_time.alignment = top_wrap
+        c_hours.alignment = v_center
+        c_note.alignment = v_center
+
+        # Multi-segment: increase row height
+        if seg_count > 1:
+            ws.row_dimensions[row_idx].height = 15 * seg_count
+
+        row_idx += 1
+
+    # Total row — only if not using template (template already has formatted total row)
+    # Write value into the last data+1 row, keeping any existing formatting
+    total_cell_date = ws.cell(row=row_idx, column=1)
+    total_cell_hours = ws.cell(row=row_idx, column=3)
+    total_cell_date.value = "合计"
+    total_cell_hours.value = round(total_hours, 2)
+
+    # If no template, bold the total row
+    if not has_template:
+        total_cell_date.font = Font(bold=True, size=11)
+        total_cell_hours.font = Font(bold=True, size=11)
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from flask import send_file
+
+    filename = f"考勤报表_{date_from}_to_{date_to}.xlsx"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route("/api/debug")

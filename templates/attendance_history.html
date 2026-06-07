@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}考勤记录 — 全部{% endblock %}
+{% block header_title %}
+<a href="/" style="color:#fff;text-decoration:none;">← 返回</a>&nbsp;&nbsp;🕐 考勤记录
+{% endblock %}
+{% block content %}
+<div id="att-history-list"><div class="att-empty">加载中...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch('/api/attendance-history').then(function(r){return r.json()}).then(function(d){
+  var el = document.getElementById('att-history-list');
+  if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
+  var html = '';
+  d.groups.forEach(function(g){
+    html += '<div class="att-day"><div class="att-day__head">'+g.date+' <span class="att-day__total">'+g.total.toFixed(1)+'h</span></div>';
+    g.entries.forEach(function(e){
+      html += '<div class="att-entry"><span class="att-entry__time">'+e.time_start+'-'+e.time_end+'</span><span class="att-entry__hours">'+e.hours+'h</span>'+(e.note?'<span class="att-entry__note">'+e.note+'</span>':'')+'</div>';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+});
+</script>
+{% endblock %}

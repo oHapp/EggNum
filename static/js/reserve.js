@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ record_date: new Date().toISOString().split('T')[0], category: '__link__', spec: 0, delta: newState ? 1 : 0 })
-      }).catch(function(){});
+      }).then(function(r){ return r.json(); }).then(function(d){ console.log('link log:', d); }).catch(function(e){ console.error('link log err:', e); });
     });
   }
 });

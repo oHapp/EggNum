@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}扣留记录 — 全部{% endblock %}
+{% block header_title %}
+<a href="/" style="color:#fff;text-decoration:none;">← 返回</a>&nbsp;&nbsp;📦 扣留记录
+{% endblock %}
+{% block content %}
+<div id="reserve-history-list"><div class="att-empty">加载中...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d){
+  var el = document.getElementById('reserve-history-list');
+  if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
+  var html = '';
+  d.groups.forEach(function(g){
+    html += '<div class="att-day"><div class="att-day__head">'+g.date+' <span class="att-day__total">净变动: '+(g.total_delta>0?'+':'')+g.total_delta+'</span></div>';
+    g.items.forEach(function(it){
+      html += '<div class="att-entry"><span class="att-entry__time">'+it.category+it.spec+'枚</span><span class="att-entry__hours">'+(it.delta>0?'+':'')+it.delta+'</span></div>';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+});
+</script>
+{% endblock %}

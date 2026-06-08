@@ -128,6 +128,18 @@ def init_db() -> None:
             UNIQUE(category, spec)
         );
 
+        CREATE TABLE IF NOT EXISTS reserve_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            category    TEXT NOT NULL,
+            spec        INTEGER NOT NULL,
+            delta       INTEGER NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reserve_log_date
+            ON reserve_log(record_date);
+
         CREATE TABLE IF NOT EXISTS attendance (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             record_date DATE NOT NULL,
@@ -364,6 +376,13 @@ def api_reserve_update():
                     "UPDATE record_items SET quantity = ? WHERE id = ?",
                     (new_report_qty, item_row["id"]),
                 )
+
+    # Log the change
+    log_date = report_date if report_date else date.today().isoformat()
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta) VALUES (?, ?, ?, ?)",
+        (log_date, category, spec, delta),
+    )
 
     db.commit()
     return jsonify({"success": True, "quantity": new_qty})
@@ -608,6 +627,37 @@ def api_attendance_export():
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/reserve-history")
+def reserve_history_page():
+    """扣留历史记录页面"""
+    return render_template("reserve_history.html")
+
+
+@app.route("/api/reserve-history")
+def api_reserve_history():
+    """Get reserve change log grouped by date."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT record_date, category, spec, delta, created_at
+           FROM reserve_log ORDER BY record_date DESC, created_at DESC"""
+    ).fetchall()
+
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for r in rows:
+        d = r["record_date"]
+        if d not in groups:
+            groups[d] = {"date": d, "items": [], "total_delta": 0}
+        groups[d]["items"].append({
+            "category": r["category"],
+            "spec": r["spec"],
+            "delta": r["delta"],
+        })
+        groups[d]["total_delta"] += r["delta"]
+
+    return jsonify({"groups": list(groups.values())})
 
 
 @app.route("/api/debug")

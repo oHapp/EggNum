@@ -40,11 +40,17 @@ fetch('/api/reserve-history').then(function(r){
 
   var totals={},allDays=[];
   d.groups.slice().reverse().forEach(function(g){
+    // Collect link toggle timestamps for this day
+    var linkTimes=[];
+    g.items.forEach(function(it){
+      if(it.category==='__link__') linkTimes.push(new Date(it.created_at+'Z').getTime());
+    });
+
     var specGroups={},linkChanges=[],lastLink=null;
     g.items.forEach(function(it){
       if(it.category==='__link__'||it.category==='__联动__'||it.category==='__system__')return;
       var k=it.category+'_'+it.spec;
-      if(!specGroups[k])specGroups[k]={cat:it.category,spec:it.spec,logs:[],netDelta:0,linkStates:[]};
+      if(!specGroups[k])specGroups[k]={cat:it.category,spec:it.spec,logs:[],netDelta:0};
       specGroups[k].logs.push(it);
       specGroups[k].netDelta+=it.delta;
       if(!lastLink||lastLink!==it.linked){linkChanges.push(it.linked);lastLink=it.linked;}
@@ -54,20 +60,24 @@ fetch('/api/reserve-history').then(function(r){
       var sg=specGroups[k],collapsed=[],batch=null;
       sg.logs.forEach(function(log){
         var t=new Date(log.created_at+'Z').getTime();
-        if(batch&&(t-batch.lastTime)<=5000&&batch.linked===log.linked){batch.delta+=log.delta;batch.lastTime=t;batch.count++;}
-        else{if(batch)collapsed.push(batch);batch={delta:log.delta,firstTime:t,lastTime:t,count:1,linked:log.linked};}
+        // Check if any link toggle happened since last log
+        var toggleBetween = linkTimes.some(function(lt){ return batch && lt > batch.lastTime && lt < t; });
+        if(batch&&(t-batch.lastTime)<=5000&&batch.linked===log.linked&&!toggleBetween){
+          batch.delta+=log.delta;batch.lastTime=t;batch.count++;
+        }else{
+          if(batch)collapsed.push(batch);
+          if(toggleBetween) collapsed.push({isSep:true});
+          batch={delta:log.delta,firstTime:t,lastTime:t,count:1,linked:log.linked};
+        }
       });
       if(batch)collapsed.push(batch);
       var old=(totals[k]||0),neu=old+sg.netDelta; totals[k]=neu;
       specs.push({cat:sg.cat,spec:sg.spec,netDelta:sg.netDelta,oldTotal:old,newTotal:neu,batches:collapsed});
     });
-    // Link state summary
     var linkText='';
     if(linkChanges.length>1){
       linkText=' | 联动: ';
-      linkChanges.forEach(function(s,i){
-        linkText+='<span style="color:'+(s?'#4caf50':'#e53935')+';">'+(i>0?'→':'')+(s?'开':'关')+'</span>';
-      });
+      linkChanges.forEach(function(s,i){ linkText+='<span style="color:'+(s?'#4caf50':'#e53935')+';">'+(i>0?'→':'')+(s?'开':'关')+'</span>'; });
     }
     allDays.push({date:g.date,specs:specs,linkText:linkText});
   });
@@ -81,9 +91,13 @@ fetch('/api/reserve-history').then(function(r){
       var cls=sp.netDelta>0?'pos':(sp.netDelta<0?'neg':'');
       html+='<div class="rh-spec"><div class="rh-spec__main" onclick="this.nextElementSibling.classList.toggle(\'open\')"><span class="rh-spec__name">'+sp.cat+sp.spec+'枚</span><span class="rh-spec__net '+cls+'">'+(sp.netDelta>0?'+':'')+sp.netDelta+' '+sp.oldTotal+'→'+sp.newTotal+'</span></div><div class="rh-spec__detail">';
       sp.batches.forEach(function(b){
-        var t=new Date(b.firstTime),ts=t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
-        var dot=b.linked?'<span class="rh-link-dot on" title="联动开启"></span>':'<span class="rh-link-dot off" title="联动关闭"></span>';
-        html+='<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
+        if(b.isSep){
+          html+='<div style="font-size:11px;color:#e65100;padding:2px 0;border-top:1px dashed #ffe0b2;margin:2px 0;">⚙ 联动切换</div>';
+        }else{
+          var t=new Date(b.firstTime),ts=t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
+          var dot=b.linked?'<span class="rh-link-dot on" title="联动开启"></span>':'<span class="rh-link-dot off" title="联动关闭"></span>';
+          html+='<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
+        }
       });
       html+='</div></div>';
     });

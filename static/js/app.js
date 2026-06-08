@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', function() {
       fetch('/api/reserve/log-event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ record_date: getDateStr(), category: '__link__', spec: 0, delta: reportLinked ? 1 : 0 })
+        body: JSON.stringify({ record_date: new Date().toISOString().split('T')[0], category: '__link__', spec: 0, delta: reportLinked ? 1 : 0 })
       }).catch(function(){});
     });
   }

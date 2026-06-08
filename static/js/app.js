@@ -46,6 +46,12 @@ document.addEventListener('DOMContentLoaded', function() {
       reportLinked = rTog.checked;
       document.getElementById('report-link-label').textContent =
         reportLinked ? '联动: 开' : '联动: 关';
+
+      fetch('/api/reserve/log-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_date: getDateStr(), category: '__link__', spec: 0, delta: reportLinked ? 1 : 0 })
+      }).catch(function(){});
     });
   }
 

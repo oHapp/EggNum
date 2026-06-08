@@ -49,7 +49,9 @@ function loadHistory() {
     var allDays = [];
     d.groups.slice().reverse().forEach(function(g){
       var specGroups = {};
+      var linkEvents = [];
       g.items.forEach(function(it){
+        if (it.category === '__link__') { linkEvents.push(it); return; }
         if (it.category === '__联动__' || it.category === '__system__') return;
         var k = it.category+'_'+it.spec;
         if (!specGroups[k]) specGroups[k] = { cat: it.category, spec: it.spec, logs: [], netDelta: 0 };
@@ -95,6 +97,13 @@ function loadHistory() {
           html += '<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
         });
         html += '</div></div>';
+      });
+      html += '</div>';
+      // Link toggle events
+      linkEvents.forEach(function(ev){
+        var t = new Date(ev.created_at+'Z');
+        var ts = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
+        html += '<div style="font-size:11px;color:'+(ev.delta>0?'#4caf50':'#e53935')+';padding:4px 14px;border-top:1px dashed #eee;">⚙ 联动'+(ev.delta>0?'开启':'关闭')+' — '+ts+'</div>';
       });
       html += '</div>';
     });

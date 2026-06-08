@@ -24,6 +24,13 @@ document.addEventListener('DOMContentLoaded', function() {
       reserveLinked = newState;
       document.getElementById('reserve-link-label').textContent =
         reserveLinked ? '联动: 开' : '联动: 关';
+
+      // Log linkage toggle event
+      fetch('/api/reserve/log-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_date: new Date().toISOString().split('T')[0], category: '__link__', spec: 0, delta: newState ? 1 : 0 })
+      }).catch(function(){});
     });
   }
 });

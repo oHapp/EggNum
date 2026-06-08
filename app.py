@@ -696,6 +696,22 @@ def api_reserve_history():
     return jsonify({"groups": list(groups.values())})
 
 
+@app.route("/api/reserve/log-event", methods=["POST"])
+def api_reserve_log_event():
+    """Log a system event (linkage toggle) to reserve_log."""
+    data = _parse_json_body()
+    if not data: return jsonify({"success": False}), 400
+    db = get_db()
+    try: db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except: pass
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?,?,?,?,?)",
+        (data.get("record_date", date.today().isoformat()), data.get("category","__link__"), data.get("spec",0), data.get("delta",0), 1)
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/reserve/history/log", methods=["POST"])
 def api_reserve_log_event():
     """Log a system event to reserve_log (e.g. linkage change)."""

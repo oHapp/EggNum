@@ -7,7 +7,7 @@
 <!-- Tab bar -->
 <nav class="tab-bar tab-bar--scroll">
   <button class="tab-btn tab-btn--active" data-tab="report">📋 出库</button>
-  <button class="tab-btn" data-tab="reserve">📦 库存</button>
+  <button class="tab-btn" data-tab="reserve">📦 扣留</button>
   <button class="tab-btn" data-tab="attendance">🕐 考勤</button>
 </nav>
 
@@ -16,7 +16,10 @@
 
   <div id="auto-load-bar" class="auto-load-bar" style="display:flex;">
     <span class="auto-load-bar__text">⏳ 加载中...</span>
-    <button type="button" class="auto-load-bar__dismiss" title="清除">&times;</button>
+    <label class="reserve-link-toggle" style="margin-right:4px;">
+      <span id="report-link-label">联动: 关</span>
+      <input type="checkbox" id="report-link-toggle">
+    </label>
   </div>
 
   <div class="meta-bar">
@@ -38,7 +41,7 @@
       {% for spec in specs %}
       <div class="spec-row is-empty" data-category="{{ category }}" data-spec="{{ spec }}">
         <span class="spec-label">{{ category }}{{ spec }}枚</span>
-        <span class="reserve-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">留存: 0</span>
+        <span class="reserve-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">扣留: 0</span>
         <div class="quantity-control">
           <button type="button" class="btn-qty btn-minus" aria-label="减少">−</button>
           <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="999" value="0" autocomplete="off">
@@ -63,7 +66,7 @@
 <div class="tab-page" id="tab-reserve" style="display:none;">
 
   <div id="reserve-bar" class="auto-load-bar" style="display:flex;">
-    <span class="auto-load-bar__text">📦 库存留存（跨天累计）</span>
+    <span class="auto-load-bar__text">📦 扣留（跨天累计）</span>
     <label class="reserve-link-toggle">
       <span id="reserve-link-label">联动: 开</span>
       <input type="checkbox" id="reserve-link-toggle" checked>
@@ -82,9 +85,9 @@
         <span class="spec-label">{{ category }}{{ spec }}枚</span>
         <span class="report-qty-hint" data-category="{{ category }}" data-spec="{{ spec }}">出库: 0</span>
         <div class="quantity-control">
-          <button type="button" class="btn-qty btn-minus reserve-minus" aria-label="从留存取出">−</button>
+          <button type="button" class="btn-qty btn-minus reserve-minus" aria-label="从扣留取出">−</button>
           <input type="text" class="qty-display is-zero" inputmode="numeric" pattern="[0-9]*" min="0" max="9999" value="0" autocomplete="off" readonly>
-          <button type="button" class="btn-qty btn-plus reserve-plus" aria-label="存入留存">+</button>
+          <button type="button" class="btn-qty btn-plus reserve-plus" aria-label="存入扣留">+</button>
         </div>
       </div>
       {% endfor %}
@@ -93,7 +96,7 @@
   {% endfor %}
 
   <div class="reserve-hint">
-    💡 存入留存会从今日出库扣减；取出留存会加回今日出库。留存数量跨天累计不清零。
+    💡 存入扣留会从今日出库扣减；取出扣留会加回今日出库。扣留数量跨天累计不清零。
   </div>
 </div>
 

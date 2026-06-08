@@ -1,5 +1,5 @@
 /**
- * 库存留存页面逻辑 v1.3.4-dev
+ * 扣留页面逻辑 v1.3.4-dev
  */
 var reserveReady = false;
 var reserveConfirmed = false; // one-time confirm when report=0
@@ -206,6 +206,6 @@ function updateReserveTotals() {
   });
   var barEl = document.querySelector('#reserve-bar .auto-load-bar__text');
   if (barEl) {
-    barEl.textContent = '📦 库存留存 ｜ 总计: ' + grandTotal + '（跨天累计）';
+    barEl.textContent = '📦 扣留 ｜ 总计: ' + grandTotal + '（跨天累计）';
   }
 }

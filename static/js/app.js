@@ -6,7 +6,9 @@ var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
-var lastSaved = {};  // snapshot of last saved values, for delta detection
+var reportLinked = false;
+var reportLinkedConfirmed = false; // one-time confirm when reserve=0
+var lastSaved = {};
 
 document.addEventListener('DOMContentLoaded', function() {
   // Init quantity controllers (report tab only)
@@ -25,21 +27,28 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-save').addEventListener('click', handleSave);
   document.getElementById('btn-generate').addEventListener('click', handleGenerateCopy);
 
-  // Dismiss auto-load bar
-  var dismissBtn = document.querySelector('.auto-load-bar__dismiss');
-  if (dismissBtn) {
-    dismissBtn.addEventListener('click', function() {
-      resetAllToZero();
-      hideAutoLoadBar();
-      todayRecordId = null;
-      hasChanges = true;
-      scheduleAutoSave();
-    });
-  }
 
   createToastElement();
   updateDateDisplay();
   initDatePicker();
+
+  // Report linkage toggle (default OFF)
+  var rTog = document.getElementById('report-link-toggle');
+  if (rTog) {
+    rTog.checked = reportLinked;
+    rTog.addEventListener('change', function() {
+      if (rTog.checked) {
+        if (!confirm('开启联动后，出库 ± 将反向影响扣留数量。确定？')) {
+          rTog.checked = false;
+          return;
+        }
+      }
+      reportLinked = rTog.checked;
+      document.getElementById('report-link-label').textContent =
+        reportLinked ? '联动: 开' : '联动: 关';
+    });
+  }
+
   autoLoadToday();
 
   // Quantity change events
@@ -207,6 +216,76 @@ function updateReportTotals() {
   if (totalEl) totalEl.textContent = '合计: ' + grandTotal;
 }
 
+/** Send reverse deltas to reserve when report quantities change */
+function syncReserveFromReport() {
+  if (!reportLinked) return;
+  var promises = [];
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    var cur = display ? (parseInt(display.value, 10) || 0) : 0;
+    var prev = (lastSaved[key] !== undefined) ? lastSaved[key] : cur;
+    var delta = cur - prev;
+    if (delta === 0) return;
+
+    // If report increases (delta > 0), reserve decreases → may go negative
+    if (delta > 0) {
+      // Check reserve quantity
+      var reserveRow = document.querySelector(
+        '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+      );
+      var reserveQty = 0;
+      if (reserveRow) {
+        var rd = reserveRow.querySelector('.qty-display');
+        reserveQty = rd ? (parseInt(rd.value, 10) || 0) : 0;
+      }
+      if (reserveQty < delta && !reportLinkedConfirmed) {
+        if (!confirm('⚠️ 扣留数量不足（当前 ' + reserveQty + '，需要 ' + delta + '），确定继续？\n\n确认后本次访问不再提示。')) {
+          // Rollback the report change to previous value
+          display.value = prev;
+          row.classList.toggle('is-empty', prev === 0);
+          display.classList.toggle('is-zero', prev === 0);
+          // Need to re-save the rolled-back report value
+          if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
+          return;
+        }
+        reportLinkedConfirmed = true;
+      }
+    }
+
+    var p = fetch('/api/reserve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: row.dataset.category, spec: parseInt(row.dataset.spec), delta: -delta }),
+      cache: 'no-store'
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.success) {
+        // Update reserve tab DOM display
+        var rr = document.querySelector(
+          '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+        );
+        if (rr) {
+          var rd2 = rr.querySelector('.qty-display');
+          if (rd2) {
+            var newVal = (parseInt(rd2.value, 10) || 0) - delta;
+            if (newVal < 0) newVal = 0;
+            rd2.value = newVal;
+            rr.classList.toggle('is-empty', newVal === 0);
+            rd2.classList.toggle('is-zero', newVal === 0);
+          }
+        }
+      }
+    }).catch(function(e) { console.error('linkage err:', e); });
+    promises.push(p);
+  });
+
+  Promise.allSettled(promises).then(function() {
+    if (typeof refreshReserveHints === 'function') refreshReserveHints();
+    if (typeof refreshReportHints === 'function') refreshReportHints();
+    if (typeof updateReserveTotals === 'function') updateReserveTotals();
+  });
+}
+
 function snapshotValues() {
   document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var key = row.dataset.category + '_' + row.dataset.spec;
@@ -226,7 +305,7 @@ function refreshReserveHints() {
       }
       document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
         var key = hint.dataset.category + '_' + hint.dataset.spec;
-        hint.textContent = '留存: ' + (map[key] || 0);
+        hint.textContent = '扣留:' + (map[key] || 0);
       });
     })
     .catch(function() {});
@@ -335,7 +414,8 @@ function submitToBackend() {
     if (data.success) {
       todayRecordId = data.record_id;
       updateDateDisplay();
-      snapshotValues();  // update snapshot after successful save
+      if (reportLinked) syncReserveFromReport();
+      snapshotValues();
       return data;
     }
     throw new Error(data.error || 'unknown');

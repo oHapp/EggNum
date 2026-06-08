@@ -97,12 +97,11 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
       '<span style="font-size:12px;color:#999;">净变动: '+(day.specs.reduce(function(s,sp){return s+sp.netDelta},0)>0?'+':'')+day.specs.reduce(function(s,sp){return s+sp.netDelta},0)+'</span>' +
       '<label><input type="checkbox" class="rh-select-day" data-date="'+day.date+'"> 选择</label>' +
       '</div>';
-    // System events
+    // System events — show as small inline note
     (day.sysEvents || []).forEach(function(ev) {
       var t = new Date(ev.created_at + 'Z');
       var ts = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
-      html += '<div class="att-entry" style="color:#e65100;padding:4px 14px;">' +
-        '<span>⚙ 联动已关闭</span><span style="font-size:12px;color:#bbb;margin-left:auto;">'+ts+'</span></div>';
+      html += '<div style="font-size:11px;color:#e65100;padding:4px 14px;border-bottom:1px dashed #ffe0b2;">⚙ 联动关闭 — '+ts+'</div>';
     });
     day.specs.forEach(function(sp) {
       var cls = sp.netDelta > 0 ? 'pos' : (sp.netDelta < 0 ? 'neg' : '');

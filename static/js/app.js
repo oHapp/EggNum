@@ -248,23 +248,33 @@ function scheduleAutoSave() {
 }
 
 function doSaveWithRetry() {
-  showAutoLoadBar(retryCount > 0 ? '🔄 重试中 (' + retryCount + '/' + MAX_RETRIES + ')...' : '📝 保存中...', false);
-  clearErrorBar();
+  if (retryCount > 0) {
+    showAutoLoadBar('🔄 重试中 (' + retryCount + '/' + MAX_RETRIES + ')...', false);
+  } else {
+    clearErrorBar();
+    showAutoLoadBar('📝 保存中...', false);
+  }
 
   submitToBackend().then(function() {
     hasChanges = false;
     retryCount = 0;
     updateReportTotals();
+    clearErrorBar();
     showAutoLoadBar('✅ 已保存', false);
   }).catch(function(err) {
     retryCount++;
     if (retryCount < MAX_RETRIES) {
-      var delay = Math.pow(2, retryCount) * 1000; // 2s, 4s
+      // Gradually tint header toward red
+      var intensity = retryCount / MAX_RETRIES;
+      var header = document.querySelector('.app-header');
+      if (header) {
+        header.style.background = 'rgba(198, 40, 40, ' + intensity.toFixed(2) + ')';
+        header.style.transition = 'background 0.5s';
+      }
+      var delay = [1000, 3000, 6000][retryCount - 1];
       setTimeout(function() { doSaveWithRetry(); }, delay);
     } else {
-      // All retries exhausted — show prominent error
       showErrorBar('⚠️ 保存失败，数据未同步！请检查网络后刷新页面');
-      showAutoLoadBar('❌ 保存失败', false);
       if (typeof showToast === 'function') showToast('⚠️ 网络异常，保存失败！', 4000);
     }
   }).finally(function() {
@@ -423,7 +433,7 @@ function escapeAttr(str) {
 function showAutoLoadBar(msg, showDismiss) {
   var bar = document.getElementById('auto-load-bar');
   if (!bar) return;
-  clearErrorBar();
+  // Don't clear header error state here — callers must explicitly clearErrorBar()
   bar.querySelector('.auto-load-bar__text').textContent = msg;
   var btn = bar.querySelector('.auto-load-bar__dismiss');
   if (btn) btn.style.display = showDismiss ? '' : 'none';

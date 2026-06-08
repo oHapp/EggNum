@@ -4,6 +4,7 @@
 <a href="/" style="color:#fff;text-decoration:none;">← 返回</a>&nbsp;&nbsp;📦 扣留记录
 {% endblock %}
 {% block content %}
+<button id="btn-clear-log" style="display:none;width:100%;padding:10px;margin-bottom:10px;border:1px solid #e53935;color:#e53935;background:#fff;border-radius:8px;font-size:14px;cursor:pointer;">🗑 清除全部记录</button>
 <div id="reserve-history-list"><div class="att-empty">加载中...</div></div>
 {% endblock %}
 {% block scripts %}
@@ -11,19 +12,41 @@
 fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d){
   var el = document.getElementById('reserve-history-list');
   if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
-  // Build running totals per spec
-  var totals = {};
-  var html = '';
-  d.groups.reverse().forEach(function(g){
-    var dayTotal = 0;
-    var rows = '';
-    g.items.forEach(function(it){
-      var k = it.category+'_'+it.spec;
-      totals[k] = (totals[k]||0) + it.delta;
-      dayTotal += it.delta;
-      rows += '<div class="att-entry"><span class="att-entry__time">'+it.category+it.spec+'枚</span><span class="att-entry__hours">'+(it.delta>0?'+':'')+it.delta+' → '+totals[k]+'</span></div>';
+
+  document.getElementById('btn-clear-log').style.display = '';
+  document.getElementById('btn-clear-log').addEventListener('click', function(){
+    if (!confirm('确定清除全部扣留记录？（扣留数量不受影响）')) return;
+    fetch('/api/reserve-history', { method: 'DELETE' }).then(function(){
+      location.reload();
     });
-    html = '<div class="att-day"><div class="att-day__head">'+g.date+' <span class="att-day__total">净变动: '+(dayTotal>0?'+':'')+dayTotal+'</span></div>'+rows+'</div>' + html;
+  });
+
+  // Process chronologically to compute running totals
+  var totals = {};
+  var allDays = [];
+  d.groups.slice().reverse().forEach(function(g){
+    var rows = [];
+    g.items.forEach(function(it){
+      var k = it.category + '_' + it.spec;
+      var oldVal = totals[k] || 0;
+      var newVal = oldVal + it.delta;
+      totals[k] = newVal;
+      rows.push({ cat: it.category, spec: it.spec, delta: it.delta, oldVal: oldVal, newVal: newVal });
+    });
+    allDays.push({ date: g.date, rows: rows });
+  });
+  // Display newest first
+  allDays.reverse();
+
+  var html = '';
+  allDays.forEach(function(day){
+    var dayTotal = 0;
+    var rowsHtml = '';
+    day.rows.forEach(function(r){
+      dayTotal += r.delta;
+      rowsHtml += '<div class="att-entry"><span class="att-entry__time">'+r.cat+r.spec+'枚</span><span class="att-entry__hours">'+(r.delta>0?'+':'')+r.delta+' '+r.oldVal+'→'+r.newVal+'</span></div>';
+    });
+    html += '<div class="att-day"><div class="att-day__head">'+day.date+' <span class="att-day__total">净变动: '+(dayTotal>0?'+':'')+dayTotal+'</span></div>'+rowsHtml+'</div>';
   });
   el.innerHTML = html;
 });

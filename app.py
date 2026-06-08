@@ -635,10 +635,16 @@ def reserve_history_page():
     return render_template("reserve_history.html")
 
 
-@app.route("/api/reserve-history")
+@app.route("/api/reserve-history", methods=["GET", "DELETE"])
 def api_reserve_history():
-    """Get reserve change log grouped by date."""
+    """Get or clear reserve change log."""
     db = get_db()
+
+    if request.method == "DELETE":
+        db.execute("DELETE FROM reserve_log")
+        db.commit()
+        return jsonify({"success": True})
+
     rows = db.execute(
         """SELECT record_date, category, spec, delta, created_at
            FROM reserve_log ORDER BY record_date DESC, created_at DESC"""

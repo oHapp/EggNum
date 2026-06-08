@@ -641,7 +641,16 @@ def api_reserve_history():
     db = get_db()
 
     if request.method == "DELETE":
-        db.execute("DELETE FROM reserve_log")
+        dates = request.args.get("dates", "")
+        if dates:
+            date_list = [d.strip() for d in dates.split(",") if d.strip()]
+            placeholders = ",".join("?" for _ in date_list)
+            db.execute(
+                f"DELETE FROM reserve_log WHERE record_date IN ({placeholders})",
+                date_list,
+            )
+        else:
+            db.execute("DELETE FROM reserve_log")
         db.commit()
         return jsonify({"success": True})
 
@@ -660,6 +669,7 @@ def api_reserve_history():
             "category": r["category"],
             "spec": r["spec"],
             "delta": r["delta"],
+            "created_at": r["created_at"],
         })
         groups[d]["total_delta"] += r["delta"]
 

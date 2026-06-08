@@ -1,54 +1,136 @@
 {% extends "base.html" %}
-{% block title %}扣留记录 — 全部{% endblock %}
+{% block title %}扣留记录{% endblock %}
 {% block header_title %}
 <a href="/" style="color:#fff;text-decoration:none;">← 返回</a>&nbsp;&nbsp;📦 扣留记录
 {% endblock %}
 {% block content %}
-<button id="btn-clear-log" style="display:none;width:100%;padding:10px;margin-bottom:10px;border:1px solid #e53935;color:#e53935;background:#fff;border-radius:8px;font-size:14px;cursor:pointer;">🗑 清除全部记录</button>
-<div id="reserve-history-list"><div class="att-empty">加载中...</div></div>
+<style>
+.rh-day { background:var(--color-surface); border-radius:var(--radius); margin-bottom:6px; box-shadow:var(--shadow); overflow:hidden; }
+.rh-day__head { display:flex; align-items:center; gap:8px; padding:10px 14px; font-size:14px; font-weight:600; border-bottom:1px solid #f0f0f0; }
+.rh-day__head label { font-size:12px; color:#999; margin-left:auto; cursor:pointer; }
+.rh-spec { padding:8px 14px; border-bottom:1px solid #f0f0f0; }
+.rh-spec__main { display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+.rh-spec__name { font-size:14px; }
+.rh-spec__net { font-size:13px; font-weight:700; }
+.rh-spec__net.pos { color:#2e7d32; } .rh-spec__net.neg { color:#c62828; }
+.rh-spec__detail { display:none; padding:4px 0 8px 14px; border-top:1px dashed #eee; margin-top:4px; }
+.rh-spec__detail.open { display:block; }
+.rh-log-row { font-size:12px; color:#888; padding:2px 0; display:flex; justify-content:space-between; }
+.rh-log-time { color:#bbb; }
+.rh-day__actions { display:flex; gap:4px; }
+.rh-day__del { background:none; border:none; color:#ccc; font-size:14px; cursor:pointer; }
+.rh-day__del:hover { color:#c62828; }
+.rh-toolbar { display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:8px; padding:8px 14px; margin-bottom:10px; font-size:13px; }
+</style>
+
+<div id="rh-toolbar" class="rh-toolbar">
+  已选 <strong id="rh-selected-count">0</strong> 天
+  <button id="rh-delete-selected" style="margin-left:8px;padding:4px 10px;border:1px solid #e53935;color:#e53935;background:#fff;border-radius:6px;cursor:pointer;">删除选中</button>
+  <button id="rh-cancel-select" style="padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:6px;cursor:pointer;">取消</button>
+</div>
+
+<div id="rh-list"><div class="att-empty">加载中...</div></div>
 {% endblock %}
 {% block scripts %}
 <script>
+var selectMode = false, selectedDates = new Set();
+
 fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d){
-  var el = document.getElementById('reserve-history-list');
+  var el = document.getElementById('rh-list');
   if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
 
-  document.getElementById('btn-clear-log').style.display = '';
-  document.getElementById('btn-clear-log').addEventListener('click', function(){
-    if (!confirm('确定清除全部扣留记录？（扣留数量不受影响）')) return;
-    fetch('/api/reserve-history', { method: 'DELETE' }).then(function(){
+  // Process chronologically, compute running totals per spec
+  var totals = {};
+  var allDays = [];
+  d.groups.slice().reverse().forEach(function(g) {
+    // Group spec items within this day, collapsing consecutive changes within 5s
+    var specGroups = {};
+    g.items.forEach(function(it, idx) {
+      var k = it.category + '_' + it.spec;
+      if (!specGroups[k]) specGroups[k] = { cat: it.category, spec: it.spec, logs: [], netDelta: 0 };
+      specGroups[k].logs.push(it);
+      specGroups[k].netDelta += it.delta;
+    });
+
+    // For each spec, collapse consecutive logs within 5s
+    var specs = [];
+    Object.keys(specGroups).forEach(function(k) {
+      var sg = specGroups[k];
+      var collapsed = [];
+      var batch = null;
+      sg.logs.forEach(function(log) {
+        var t = new Date(log.created_at + 'Z').getTime();
+        if (batch && (t - batch.lastTime) <= 5000) {
+          batch.delta += log.delta;
+          batch.lastTime = t;
+          batch.count++;
+        } else {
+          if (batch) collapsed.push(batch);
+          batch = { delta: log.delta, firstTime: t, lastTime: t, count: 1 };
+        }
+      });
+      if (batch) collapsed.push(batch);
+
+      // Compute running totals
+      var specTotal = totals[k] || 0;
+      var oldTotal = specTotal;
+      var newTotal = specTotal + sg.netDelta;
+      totals[k] = newTotal;
+
+      specs.push({ cat: sg.cat, spec: sg.spec, netDelta: sg.netDelta, oldTotal: oldTotal, newTotal: newTotal, batches: collapsed });
+    });
+    allDays.push({ date: g.date, specs: specs });
+  });
+  allDays.reverse();
+
+  // Render
+  var html = '';
+  allDays.forEach(function(day) {
+    html += '<div class="rh-day" data-date="'+day.date+'"><div class="rh-day__head">' +
+      '<span>'+day.date+'</span>' +
+      '<span style="font-size:12px;color:#999;">净变动: '+(day.specs.reduce(function(s,sp){return s+sp.netDelta},0)>0?'+':'')+day.specs.reduce(function(s,sp){return s+sp.netDelta},0)+'</span>' +
+      '<label><input type="checkbox" class="rh-select-day" data-date="'+day.date+'"> 选择</label>' +
+      '</div>';
+    day.specs.forEach(function(sp) {
+      var cls = sp.netDelta > 0 ? 'pos' : (sp.netDelta < 0 ? 'neg' : '');
+      html += '<div class="rh-spec"><div class="rh-spec__main" onclick="this.nextElementSibling.classList.toggle(\'open\')">' +
+        '<span class="rh-spec__name">'+sp.cat+sp.spec+'枚</span>' +
+        '<span class="rh-spec__net '+cls+'">'+(sp.netDelta>0?'+':'')+sp.netDelta+' '+sp.oldTotal+'→'+sp.newTotal+'</span>' +
+        '</div>' +
+        '<div class="rh-spec__detail">';
+      sp.batches.forEach(function(b) {
+        var t = new Date(b.firstTime);
+        var timeStr = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
+        html += '<div class="rh-log-row"><span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+timeStr+'</span></div>';
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+
+  // Select mode
+  document.querySelectorAll('.rh-select-day').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      if (cb.checked) selectedDates.add(cb.dataset.date);
+      else selectedDates.delete(cb.dataset.date);
+      document.getElementById('rh-selected-count').textContent = selectedDates.size;
+      document.getElementById('rh-toolbar').style.display = selectedDates.size > 0 ? 'flex' : 'none';
+    });
+  });
+  document.getElementById('rh-delete-selected').addEventListener('click', function() {
+    if (!selectedDates.size) return;
+    if (!confirm('删除已选的 '+selectedDates.size+' 天记录？')) return;
+    var dates = Array.from(selectedDates).join(',');
+    fetch('/api/reserve-history?dates=' + encodeURIComponent(dates), { method: 'DELETE' }).then(function() {
       location.reload();
     });
   });
-
-  // Process chronologically to compute running totals
-  var totals = {};
-  var allDays = [];
-  d.groups.slice().reverse().forEach(function(g){
-    var rows = [];
-    g.items.forEach(function(it){
-      var k = it.category + '_' + it.spec;
-      var oldVal = totals[k] || 0;
-      var newVal = oldVal + it.delta;
-      totals[k] = newVal;
-      rows.push({ cat: it.category, spec: it.spec, delta: it.delta, oldVal: oldVal, newVal: newVal });
-    });
-    allDays.push({ date: g.date, rows: rows });
+  document.getElementById('rh-cancel-select').addEventListener('click', function() {
+    selectedDates.clear();
+    document.querySelectorAll('.rh-select-day').forEach(function(cb) { cb.checked = false; });
+    document.getElementById('rh-toolbar').style.display = 'none';
   });
-  // Display newest first
-  allDays.reverse();
-
-  var html = '';
-  allDays.forEach(function(day){
-    var dayTotal = 0;
-    var rowsHtml = '';
-    day.rows.forEach(function(r){
-      dayTotal += r.delta;
-      rowsHtml += '<div class="att-entry"><span class="att-entry__time">'+r.cat+r.spec+'枚</span><span class="att-entry__hours">'+(r.delta>0?'+':'')+r.delta+' '+r.oldVal+'→'+r.newVal+'</span></div>';
-    });
-    html += '<div class="att-day"><div class="att-day__head">'+day.date+' <span class="att-day__total">净变动: '+(dayTotal>0?'+':'')+dayTotal+'</span></div>'+rowsHtml+'</div>';
-  });
-  el.innerHTML = html;
 });
 </script>
 {% endblock %}

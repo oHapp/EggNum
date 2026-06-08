@@ -6,7 +6,8 @@ var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
-var reportLinked = false; // report → reserve linkage (default OFF)
+var reportLinked = false;
+var reportLinkedConfirmed = false; // one-time confirm when reserve=0
 var lastSaved = {};
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -226,22 +227,62 @@ function syncReserveFromReport() {
     var prev = (lastSaved[key] !== undefined) ? lastSaved[key] : cur;
     var delta = cur - prev;
     if (delta === 0) return;
-    // Reverse: report up → reserve down
+
+    // If report increases (delta > 0), reserve decreases → may go negative
+    if (delta > 0) {
+      // Check reserve quantity
+      var reserveRow = document.querySelector(
+        '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+      );
+      var reserveQty = 0;
+      if (reserveRow) {
+        var rd = reserveRow.querySelector('.qty-display');
+        reserveQty = rd ? (parseInt(rd.value, 10) || 0) : 0;
+      }
+      if (reserveQty < delta && !reportLinkedConfirmed) {
+        if (!confirm('⚠️ 扣留数量不足（当前 ' + reserveQty + '，需要 ' + delta + '），确定继续？\n\n确认后本次访问不再提示。')) {
+          // Rollback the report change to previous value
+          display.value = prev;
+          row.classList.toggle('is-empty', prev === 0);
+          display.classList.toggle('is-zero', prev === 0);
+          // Need to re-save the rolled-back report value
+          if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
+          return;
+        }
+        reportLinkedConfirmed = true;
+      }
+    }
+
     var p = fetch('/api/reserve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category: row.dataset.category, spec: parseInt(row.dataset.spec), delta: -delta }),
       cache: 'no-store'
     }).then(function(r) { return r.json(); }).then(function(d) {
-      if (!d.success) console.error('linkage fail:', row.dataset.category, row.dataset.spec, d.error);
+      if (d.success) {
+        // Update reserve tab DOM display
+        var rr = document.querySelector(
+          '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+        );
+        if (rr) {
+          var rd2 = rr.querySelector('.qty-display');
+          if (rd2) {
+            var newVal = (parseInt(rd2.value, 10) || 0) - delta;
+            if (newVal < 0) newVal = 0;
+            rd2.value = newVal;
+            rr.classList.toggle('is-empty', newVal === 0);
+            rd2.classList.toggle('is-zero', newVal === 0);
+          }
+        }
+      }
     }).catch(function(e) { console.error('linkage err:', e); });
     promises.push(p);
   });
-  // Update reserve display after sync
+
   Promise.allSettled(promises).then(function() {
-    if (typeof refreshReserveHints === 'function') setTimeout(refreshReserveHints, 300);
-    if (typeof refreshReportHints === 'function') setTimeout(refreshReportHints, 300);
-    if (typeof updateReserveTotals === 'function') setTimeout(updateReserveTotals, 300);
+    if (typeof refreshReserveHints === 'function') refreshReserveHints();
+    if (typeof refreshReportHints === 'function') refreshReportHints();
+    if (typeof updateReserveTotals === 'function') updateReserveTotals();
   });
 }
 

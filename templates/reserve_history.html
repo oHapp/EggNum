@@ -11,13 +11,19 @@
 fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d){
   var el = document.getElementById('reserve-history-list');
   if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
+  // Build running totals per spec
+  var totals = {};
   var html = '';
-  d.groups.forEach(function(g){
-    html += '<div class="att-day"><div class="att-day__head">'+g.date+' <span class="att-day__total">净变动: '+(g.total_delta>0?'+':'')+g.total_delta+'</span></div>';
+  d.groups.reverse().forEach(function(g){
+    var dayTotal = 0;
+    var rows = '';
     g.items.forEach(function(it){
-      html += '<div class="att-entry"><span class="att-entry__time">'+it.category+it.spec+'枚</span><span class="att-entry__hours">'+(it.delta>0?'+':'')+it.delta+'</span></div>';
+      var k = it.category+'_'+it.spec;
+      totals[k] = (totals[k]||0) + it.delta;
+      dayTotal += it.delta;
+      rows += '<div class="att-entry"><span class="att-entry__time">'+it.category+it.spec+'枚</span><span class="att-entry__hours">'+(it.delta>0?'+':'')+it.delta+' → '+totals[k]+'</span></div>';
     });
-    html += '</div>';
+    html = '<div class="att-day"><div class="att-day__head">'+g.date+' <span class="att-day__total">净变动: '+(dayTotal>0?'+':'')+dayTotal+'</span></div>'+rows+'</div>' + html;
   });
   el.innerHTML = html;
 });

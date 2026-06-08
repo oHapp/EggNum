@@ -676,6 +676,24 @@ def api_reserve_history():
     return jsonify({"groups": list(groups.values())})
 
 
+@app.route("/api/reserve/history/log", methods=["POST"])
+def api_reserve_log_event():
+    """Log a system event to reserve_log (e.g. linkage change)."""
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False}), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta) VALUES (?, ?, ?, ?)",
+        (data.get("record_date", date.today().isoformat()),
+         data.get("category", "__system__"),
+         data.get("spec", 0),
+         data.get("delta", 0)),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/debug")
 def api_debug():
     """Show ALL records and their items — for troubleshooting."""

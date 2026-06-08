@@ -121,6 +121,19 @@ body {
   text-align: right;
 }
 
+/* Linkage toggle */
+.reserve-link-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #999;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.reserve-link-toggle input { cursor: pointer; }
+
 /* --- Reserve Hint --- */
 .reserve-hint {
   text-align: center;

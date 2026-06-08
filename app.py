@@ -134,6 +134,7 @@ def init_db() -> None:
             category    TEXT NOT NULL,
             spec        INTEGER NOT NULL,
             delta       INTEGER NOT NULL,
+            linked      INTEGER NOT NULL DEFAULT 1,
             created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -377,11 +378,12 @@ def api_reserve_update():
                     (new_report_qty, item_row["id"]),
                 )
 
-    # Log the change
+    # Log the change (linked=1 if synced with report, 0 if standalone)
     log_date = report_date if report_date else date.today().isoformat()
+    linked = 1 if report_date else 0
     db.execute(
-        "INSERT INTO reserve_log (record_date, category, spec, delta) VALUES (?, ?, ?, ?)",
-        (log_date, category, spec, delta),
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?, ?, ?, ?, ?)",
+        (log_date, category, spec, delta, linked),
     )
 
     db.commit()
@@ -670,6 +672,7 @@ def api_reserve_history():
             "spec": r["spec"],
             "delta": r["delta"],
             "created_at": r["created_at"],
+            "linked": bool(r["linked"]),
         })
         groups[d]["total_delta"] += r["delta"]
 

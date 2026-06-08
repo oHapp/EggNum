@@ -15,11 +15,10 @@
 .rh-spec__net.pos { color:#2e7d32; } .rh-spec__net.neg { color:#c62828; }
 .rh-spec__detail { display:none; padding:4px 0 8px 14px; border-top:1px dashed #eee; margin-top:4px; }
 .rh-spec__detail.open { display:block; }
-.rh-log-row { font-size:12px; color:#888; padding:2px 0; display:flex; justify-content:space-between; }
-.rh-log-time { color:#bbb; }
-.rh-day__actions { display:flex; gap:4px; }
-.rh-day__del { background:none; border:none; color:#ccc; font-size:14px; cursor:pointer; }
-.rh-day__del:hover { color:#c62828; }
+.rh-log-row { font-size:12px; color:#888; padding:2px 0; display:flex; align-items:center; gap:6px; }
+.rh-log-time { color:#bbb; margin-left:auto; }
+.rh-link-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.rh-link-dot.on { background:#4caf50; } .rh-link-dot.off { background:#e53935; }
 .rh-toolbar { display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:8px; padding:8px 14px; margin-bottom:10px; font-size:13px; }
 </style>
 
@@ -39,26 +38,18 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
   var el = document.getElementById('rh-list');
   if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
 
-  // Process chronologically, compute running totals per spec
   var totals = {};
   var allDays = [];
   d.groups.slice().reverse().forEach(function(g) {
-    // Separate system events from spec changes
     var specGroups = {};
-    var sysEvents = [];
-    g.items.forEach(function(it, idx) {
-      if (it.category === '__联动__') {
-        if (it.delta !== 0) sysEvents.push(it); // only show OFF (delta=-1)
-        return;
-      }
-      if (it.category === '__system__') { sysEvents.push(it); return; }
+    g.items.forEach(function(it) {
+      if (it.category === '__联动__' || it.category === '__system__') return;
       var k = it.category + '_' + it.spec;
       if (!specGroups[k]) specGroups[k] = { cat: it.category, spec: it.spec, logs: [], netDelta: 0 };
       specGroups[k].logs.push(it);
       specGroups[k].netDelta += it.delta;
     });
 
-    // For each spec, collapse consecutive logs within 5s
     var specs = [];
     Object.keys(specGroups).forEach(function(k) {
       var sg = specGroups[k];
@@ -66,18 +57,15 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
       var batch = null;
       sg.logs.forEach(function(log) {
         var t = new Date(log.created_at + 'Z').getTime();
-        if (batch && (t - batch.lastTime) <= 5000) {
-          batch.delta += log.delta;
-          batch.lastTime = t;
-          batch.count++;
+        if (batch && (t - batch.lastTime) <= 5000 && batch.linked === log.linked) {
+          batch.delta += log.delta; batch.lastTime = t; batch.count++;
         } else {
           if (batch) collapsed.push(batch);
-          batch = { delta: log.delta, firstTime: t, lastTime: t, count: 1 };
+          batch = { delta: log.delta, firstTime: t, lastTime: t, count: 1, linked: log.linked };
         }
       });
       if (batch) collapsed.push(batch);
 
-      // Compute running totals
       var specTotal = totals[k] || 0;
       var oldTotal = specTotal;
       var newTotal = specTotal + sg.netDelta;
@@ -85,35 +73,27 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
 
       specs.push({ cat: sg.cat, spec: sg.spec, netDelta: sg.netDelta, oldTotal: oldTotal, newTotal: newTotal, batches: collapsed });
     });
-    allDays.push({ date: g.date, specs: specs, sysEvents: sysEvents });
+    allDays.push({ date: g.date, specs: specs });
   });
   allDays.reverse();
 
-  // Render
   var html = '';
   allDays.forEach(function(day) {
     html += '<div class="rh-day" data-date="'+day.date+'"><div class="rh-day__head">' +
       '<span>'+day.date+'</span>' +
       '<span style="font-size:12px;color:#999;">净变动: '+(day.specs.reduce(function(s,sp){return s+sp.netDelta},0)>0?'+':'')+day.specs.reduce(function(s,sp){return s+sp.netDelta},0)+'</span>' +
-      '<label><input type="checkbox" class="rh-select-day" data-date="'+day.date+'"> 选择</label>' +
-      '</div>';
-    // System events — show as small inline note
-    (day.sysEvents || []).forEach(function(ev) {
-      var t = new Date(ev.created_at + 'Z');
-      var ts = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
-      html += '<div style="font-size:11px;color:#e65100;padding:4px 14px;border-bottom:1px dashed #ffe0b2;">⚙ 联动关闭 — '+ts+'</div>';
-    });
+      '<label><input type="checkbox" class="rh-select-day" data-date="'+day.date+'"> 选择</label></div>';
     day.specs.forEach(function(sp) {
       var cls = sp.netDelta > 0 ? 'pos' : (sp.netDelta < 0 ? 'neg' : '');
       html += '<div class="rh-spec"><div class="rh-spec__main" onclick="this.nextElementSibling.classList.toggle(\'open\')">' +
         '<span class="rh-spec__name">'+sp.cat+sp.spec+'枚</span>' +
-        '<span class="rh-spec__net '+cls+'">'+(sp.netDelta>0?'+':'')+sp.netDelta+' '+sp.oldTotal+'→'+sp.newTotal+'</span>' +
-        '</div>' +
+        '<span class="rh-spec__net '+cls+'">'+(sp.netDelta>0?'+':'')+sp.netDelta+' '+sp.oldTotal+'→'+sp.newTotal+'</span></div>' +
         '<div class="rh-spec__detail">';
       sp.batches.forEach(function(b) {
         var t = new Date(b.firstTime);
-        var timeStr = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
-        html += '<div class="rh-log-row"><span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+timeStr+'</span></div>';
+        var ts = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
+        var dot = b.linked ? '<span class="rh-link-dot on" title="联动开启"></span>' : '<span class="rh-link-dot off" title="联动关闭"></span>';
+        html += '<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
       });
       html += '</div></div>';
     });
@@ -121,7 +101,6 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
   });
   el.innerHTML = html;
 
-  // Select mode
   document.querySelectorAll('.rh-select-day').forEach(function(cb) {
     cb.addEventListener('change', function() {
       if (cb.checked) selectedDates.add(cb.dataset.date);
@@ -133,14 +112,11 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
   document.getElementById('rh-delete-selected').addEventListener('click', function() {
     if (!selectedDates.size) return;
     if (!confirm('删除已选的 '+selectedDates.size+' 天记录？')) return;
-    var dates = Array.from(selectedDates).join(',');
-    fetch('/api/reserve-history?dates=' + encodeURIComponent(dates), { method: 'DELETE' }).then(function() {
-      location.reload();
-    });
+    fetch('/api/reserve-history?dates='+encodeURIComponent(Array.from(selectedDates).join(',')), { method: 'DELETE' }).then(function(){ location.reload(); });
   });
   document.getElementById('rh-cancel-select').addEventListener('click', function() {
     selectedDates.clear();
-    document.querySelectorAll('.rh-select-day').forEach(function(cb) { cb.checked = false; });
+    document.querySelectorAll('.rh-select-day').forEach(function(cb){cb.checked=false;});
     document.getElementById('rh-toolbar').style.display = 'none';
   });
 });

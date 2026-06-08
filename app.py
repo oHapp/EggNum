@@ -314,7 +314,7 @@ def api_reserve_update():
     category = data.get("category", "")
     spec = data.get("spec", 0)
     delta = data.get("delta", 0)
-    report_date = data.get("date", date.today().isoformat())
+    report_date = data.get("date", None)  # None = linkage OFF, skip report sync
 
     if delta == 0:
         return jsonify({"success": False, "error": "delta 不能为 0"}), 400
@@ -344,27 +344,26 @@ def api_reserve_update():
             (category, spec, delta),
         )
 
-    # Sync with today's report: delta > 0 means move FROM report TO reserve
-    # So report quantity decreases by delta
-    report_row = db.execute(
-        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
-        (report_date,),
-    ).fetchone()
-
-    if report_row:
-        # Get current report qty for this spec
-        item_row = db.execute(
-            "SELECT id, quantity FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
-            (report_row["id"], category, spec),
+    # Sync with report only if date provided (linkage ON)
+    if report_date:
+        report_row = db.execute(
+            "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
+            (report_date,),
         ).fetchone()
-        if item_row:
-            new_report_qty = item_row["quantity"] - delta  # delta>0 means report decreases
-            if new_report_qty < 0:
-                new_report_qty = 0
-            db.execute(
-                "UPDATE record_items SET quantity = ? WHERE id = ?",
-                (new_report_qty, item_row["id"]),
-            )
+
+        if report_row:
+            item_row = db.execute(
+                "SELECT id, quantity FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
+                (report_row["id"], category, spec),
+            ).fetchone()
+            if item_row:
+                new_report_qty = item_row["quantity"] - delta
+                if new_report_qty < 0:
+                    new_report_qty = 0
+                db.execute(
+                    "UPDATE record_items SET quantity = ? WHERE id = ?",
+                    (new_report_qty, item_row["id"]),
+                )
 
     db.commit()
     return jsonify({"success": True, "quantity": new_qty})

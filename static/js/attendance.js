@@ -30,11 +30,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Export date defaults
-  var today = localDateStr();
-  document.getElementById('att-export-from').value = today;
-  var to = new Date(); to.setDate(to.getDate() + 30);
-  document.getElementById('att-export-to').value = localDateStr(to);
+  // Export defaults: from 30 days ago to today
+  var today = new Date();
+  var from = new Date(); from.setDate(from.getDate() - 30);
+  document.getElementById('att-export-from').value = localDateStr(from);
+  document.getElementById('att-export-to').value = localDateStr(today);
 });
 
 // ── Init ──

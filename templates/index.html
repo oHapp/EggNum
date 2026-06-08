@@ -64,6 +64,10 @@
 
   <div id="reserve-bar" class="auto-load-bar" style="display:flex;">
     <span class="auto-load-bar__text">📦 库存留存（跨天累计）</span>
+    <label class="reserve-link-toggle">
+      <span id="reserve-link-label">联动: 开</span>
+      <input type="checkbox" id="reserve-link-toggle" checked>
+    </label>
   </div>
 
   {% for category, specs in templates.items() %}

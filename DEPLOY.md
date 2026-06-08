@@ -153,17 +153,31 @@ docker compose up -d
 
 即使删除容器或重新构建镜像，**数据不会丢失**。
 
-### 备份数据库
+### 自动备份（每天 + 自动轮转 7 天）
 
 ```bash
-# 从 volume 中复制数据库文件出来
-docker cp eggnum:/data/eggnum.db ./eggnum_backup_$(date +%Y%m%d).db
+# 1. 赋予执行权限
+chmod +x backup.sh
+
+# 2. 编辑备份目录（默认 ./backups）
+# 编辑 backup.sh，修改 BACKUP_DIR 为你的路径
+
+# 3. 手动测试
+./backup.sh
+
+# 4. 添加到 crontab，每天凌晨 3 点自动备份
+crontab -e
+# 添加一行:
+0 3 * * * /home/Happ/Service/EggNum/backup.sh >> /home/Happ/Service/backups/backup.log 2>&1
 ```
+
+备份使用 `sqlite3 .backup` 命令，正确处理 WAL 模式，不会丢未写入数据。文件名格式 `eggnum_20260607.db`，自动保留最近 7 天。
 
 ### 恢复数据库
 
 ```bash
-docker cp ./eggnum_backup_20260605.db eggnum:/data/eggnum.db
+# 复制备份到容器
+docker cp ./backups/eggnum_20260607.db eggnum:/data/eggnum.db
 docker compose restart
 ```
 

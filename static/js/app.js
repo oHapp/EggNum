@@ -232,34 +232,64 @@ function refreshReserveHints() {
     .catch(function() {});
 }
 
-// ── Auto-save ──
+// ── Auto-save with retry ──
+var retryCount = 0;
+var MAX_RETRIES = 3;
+
 function scheduleAutoSave() {
   if (!pageReady) return;
   hasChanges = true;
   if (autoSaveBusy) { autoSavePending = true; return; }
   autoSaveBusy = true;
   autoSavePending = false;
+  retryCount = 0;
 
-  showAutoLoadBar('📝 保存中...', false);
+  doSaveWithRetry();
+}
+
+function doSaveWithRetry() {
+  if (retryCount > 0) {
+    showAutoLoadBar('🔄 重试中 (' + retryCount + '/' + MAX_RETRIES + ')...', false);
+  } else {
+    clearErrorBar();
+    showAutoLoadBar('📝 保存中...', false);
+  }
 
   submitToBackend().then(function() {
     hasChanges = false;
+    retryCount = 0;
     updateReportTotals();
+    clearErrorBar();
     showAutoLoadBar('✅ 已保存', false);
   }).catch(function(err) {
-    console.error('autoSave failed:', err);
-    showAutoLoadBar('⚠️ ' + (err.message || '保存失败'), false);
+    retryCount++;
+    if (retryCount < MAX_RETRIES) {
+      // Gradually tint header toward red
+      var intensity = retryCount / MAX_RETRIES;
+      var header = document.querySelector('.app-header');
+      if (header) {
+        header.style.background = 'rgba(198, 40, 40, ' + intensity.toFixed(2) + ')';
+        header.style.transition = 'background 0.5s';
+      }
+      var delay = [1000, 3000, 6000][retryCount - 1];
+      setTimeout(function() { doSaveWithRetry(); }, delay);
+    } else {
+      showErrorBar('⚠️ 保存失败，数据未同步！请检查网络后刷新页面');
+      if (typeof showToast === 'function') showToast('⚠️ 网络异常，保存失败！', 4000);
+    }
   }).finally(function() {
-    autoSaveBusy = false;
-    if (autoSavePending) { autoSavePending = false; scheduleAutoSave(); }
-    else {
-      setTimeout(function() {
-        var bar = document.getElementById('auto-load-bar');
-        var textEl = bar && bar.querySelector('.auto-load-bar__text');
-        if (textEl && textEl.textContent.indexOf('已保存') >= 0) {
-          showAutoLoadBar('📥 已加载今日数据', true);
-        }
-      }, 2500);
+    if (retryCount >= MAX_RETRIES || retryCount === 0) {
+      autoSaveBusy = false;
+      if (autoSavePending) { autoSavePending = false; scheduleAutoSave(); }
+      else if (retryCount === 0) {
+        setTimeout(function() {
+          var bar = document.getElementById('auto-load-bar');
+          var textEl = bar && bar.querySelector('.auto-load-bar__text');
+          if (textEl && textEl.textContent.indexOf('已保存') >= 0) {
+            showAutoLoadBar('📥 已加载今日数据', true);
+          }
+        }, 2500);
+      }
     }
   });
 }
@@ -315,6 +345,7 @@ function submitToBackend() {
 // ── Save button ──
 async function handleSave() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
+  clearErrorBar();
   var btn = document.getElementById('btn-save');
   var orig = btn.textContent;
   btn.textContent = '⏳ 保存中...';
@@ -402,6 +433,7 @@ function escapeAttr(str) {
 function showAutoLoadBar(msg, showDismiss) {
   var bar = document.getElementById('auto-load-bar');
   if (!bar) return;
+  // Don't clear header error state here — callers must explicitly clearErrorBar()
   bar.querySelector('.auto-load-bar__text').textContent = msg;
   var btn = bar.querySelector('.auto-load-bar__dismiss');
   if (btn) btn.style.display = showDismiss ? '' : 'none';
@@ -411,6 +443,38 @@ function showAutoLoadBar(msg, showDismiss) {
 function hideAutoLoadBar() {
   var bar = document.getElementById('auto-load-bar');
   if (bar) bar.style.display = 'none';
+}
+
+function showErrorBar(msg) {
+  var bar = document.getElementById('auto-load-bar');
+  if (!bar) return;
+  bar.querySelector('.auto-load-bar__text').textContent = msg;
+  bar.style.display = 'flex';
+  bar.style.background = '#fce4ec';
+  bar.style.borderColor = '#ef9a9a';
+  bar.style.color = '#c62828';
+
+  // Flash the header red
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '#c62828';
+    header.style.transition = 'background 0.3s';
+  }
+}
+
+function clearErrorBar() {
+  var bar = document.getElementById('auto-load-bar');
+  if (!bar) return;
+  bar.style.background = '';
+  bar.style.borderColor = '';
+  bar.style.color = '';
+
+  // Restore header
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '';
+    header.style.transition = '';
+  }
 }
 
 function createToastElement() {

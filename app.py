@@ -154,6 +154,11 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_attendance_date
             ON attendance(record_date);
     """)
+    # Migration: add linked column to existing reserve_log
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
     db.commit()
 
 

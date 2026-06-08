@@ -168,7 +168,7 @@ chmod +x backup.sh
 # 4. 添加到 crontab，每天凌晨 3 点自动备份
 crontab -e
 # 添加一行:
-0 3 * * * /home/Happ/Service/EggNum/backup.sh >> /home/Happ/Service/EggNum/backups/backup.log 2>&1
+0 3 * * * /home/Happ/Service/EggNum/backup.sh >> /home/Happ/Service/backups/backup.log 2>&1
 ```
 
 备份使用 `sqlite3 .backup` 命令，正确处理 WAL 模式，不会丢未写入数据。文件名格式 `eggnum_20260607.db`，自动保留最近 7 天。

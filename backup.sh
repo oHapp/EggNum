@@ -20,7 +20,7 @@
 #     （首次会提示选择编辑器，选 nano 或 vim）
 #
 #  2. 在打开的文件末尾粘贴下面这行：
-#     0 3 * * * /home/Happ/Service/EggNum/backup.sh >> /home/Happ/Service/EggNum/backups/backup.log 2>&1
+#     0 3 * * * /home/Happ/Service/EggNum/backup.sh >> /home/Happ/Service/backups/backup.log 2>&1
 #
 #     这句的含义：
 #       0 3 * * * ─ 每天凌晨 3:00
@@ -39,7 +39,7 @@
 #  4. 验证是否添加成功： crontab -l
 #
 #  ── 备份文件位置 ──
-#  默认：/home/Happ/Service/EggNum/backups/
+#  默认：/home/Happ/Service/backups/
 #  文件名：eggnum_20260607.db
 #  运行时日志：backups/backup.log
 #
@@ -59,7 +59,7 @@ set -e
 # ── 配置（按需修改） ──
 CONTAINER_NAME="eggnum"
 DB_PATH="/data/eggnum.db"
-BACKUP_DIR="/home/Happ/Service/EggNum/backups"
+BACKUP_DIR="/home/Happ/Service/backups"
 KEEP_DAYS=7
 
 mkdir -p "$BACKUP_DIR"

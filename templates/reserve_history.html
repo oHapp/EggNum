@@ -79,7 +79,7 @@ function loadHistory() {
         totals[k] = newTotal;
         specs.push({ cat: sg.cat, spec: sg.spec, netDelta: sg.netDelta, oldTotal: oldTotal, newTotal: newTotal, batches: collapsed });
       });
-      allDays.push({ date: g.date, specs: specs });
+      allDays.push({ date: g.date, specs: specs, linkEvents: linkEvents });
     });
     allDays.reverse();
 
@@ -99,8 +99,7 @@ function loadHistory() {
         html += '</div></div>';
       });
       html += '</div>';
-      // Link toggle events
-      linkEvents.forEach(function(ev){
+      (day.linkEvents||[]).forEach(function(ev){
         var t = new Date(ev.created_at+'Z');
         var ts = t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
         html += '<div style="font-size:11px;color:'+(ev.delta>0?'#4caf50':'#e53935')+';padding:4px 14px;border-top:1px dashed #eee;">⚙ 联动'+(ev.delta>0?'开启':'关闭')+' — '+ts+'</div>';

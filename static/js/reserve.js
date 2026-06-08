@@ -8,23 +8,21 @@ var reserveLinked = true;     // linkage toggle
 document.addEventListener('DOMContentLoaded', function() {
   loadReserve();
 
-  // Linkage toggle with confirm
+  // Linkage toggle: only confirm when turning OFF
   var tog = document.getElementById('reserve-link-toggle');
   if (tog) {
     tog.checked = reserveLinked;
     document.getElementById('reserve-link-label').textContent = '联动: 开';
     tog.addEventListener('change', function() {
       var newState = tog.checked;
-      var msg = newState ?
-        '开启联动后，留存 ± 将同步影响出库数量。确定？' :
-        '关闭联动后，留存 ± 不再影响出库。确定？';
-      if (confirm(msg)) {
-        reserveLinked = newState;
-        document.getElementById('reserve-link-label').textContent =
-          reserveLinked ? '联动: 开' : '联动: 关';
-      } else {
-        tog.checked = reserveLinked; // revert
+      // Only confirm when turning OFF
+      if (!newState && !confirm('关闭联动后，留存 ± 不再影响出库数量。确定？')) {
+        tog.checked = true; // revert
+        return;
       }
+      reserveLinked = newState;
+      document.getElementById('reserve-link-label').textContent =
+        reserveLinked ? '联动: 开' : '联动: 关';
     });
   }
 });

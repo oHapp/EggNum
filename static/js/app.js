@@ -6,7 +6,8 @@ var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
-var lastSaved = {};  // snapshot of last saved values, for delta detection
+var reportLinked = false; // report → reserve linkage (default OFF)
+var lastSaved = {};
 
 document.addEventListener('DOMContentLoaded', function() {
   // Init quantity controllers (report tab only)
@@ -40,6 +41,24 @@ document.addEventListener('DOMContentLoaded', function() {
   createToastElement();
   updateDateDisplay();
   initDatePicker();
+
+  // Report linkage toggle (default OFF)
+  var rTog = document.getElementById('report-link-toggle');
+  if (rTog) {
+    rTog.checked = reportLinked;
+    rTog.addEventListener('change', function() {
+      if (rTog.checked) {
+        if (!confirm('开启联动后，出库 ± 将反向影响扣留数量。确定？')) {
+          rTog.checked = false;
+          return;
+        }
+      }
+      reportLinked = rTog.checked;
+      document.getElementById('report-link-label').textContent =
+        reportLinked ? '联动: 开' : '联动: 关';
+    });
+  }
+
   autoLoadToday();
 
   // Quantity change events
@@ -207,6 +226,25 @@ function updateReportTotals() {
   if (totalEl) totalEl.textContent = '合计: ' + grandTotal;
 }
 
+/** Send reverse deltas to reserve when report quantities change */
+function syncReserveFromReport() {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    var cur = display ? (parseInt(display.value, 10) || 0) : 0;
+    var prev = lastSaved[key] !== undefined ? lastSaved[key] : cur;
+    var delta = cur - prev;
+    if (delta === 0) return;
+    // Reverse: report up → reserve down
+    fetch('/api/reserve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: row.dataset.category, spec: parseInt(row.dataset.spec), delta: -delta }),
+      cache: 'no-store'
+    }).catch(function() {});
+  });
+}
+
 function snapshotValues() {
   document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var key = row.dataset.category + '_' + row.dataset.spec;
@@ -226,7 +264,7 @@ function refreshReserveHints() {
       }
       document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
         var key = hint.dataset.category + '_' + hint.dataset.spec;
-        hint.textContent = '留存: ' + (map[key] || 0);
+        hint.textContent = '扣留:' + (map[key] || 0);
       });
     })
     .catch(function() {});
@@ -335,7 +373,8 @@ function submitToBackend() {
     if (data.success) {
       todayRecordId = data.record_id;
       updateDateDisplay();
-      snapshotValues();  // update snapshot after successful save
+      if (reportLinked) syncReserveFromReport();
+      snapshotValues();
       return data;
     }
     throw new Error(data.error || 'unknown');

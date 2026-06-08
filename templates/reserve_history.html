@@ -38,8 +38,9 @@ fetch('/api/reserve-history').then(function(r){
   if (!r.ok) throw new Error('HTTP '+r.status);
   return r.json();
 }).then(function(d){
+  console.log('reserve-history API:', JSON.stringify(d));
   var el = document.getElementById('rh-list');
-  if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
+  if (!d.groups || !d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
 
   var totals = {};
   var allDays = [];
@@ -104,6 +105,7 @@ fetch('/api/reserve-history').then(function(r){
   });
   el.innerHTML = html;
 }).catch(function(e){
+  console.error('reserve-history error:', e);
   document.getElementById('rh-list').innerHTML = '<div class="att-empty" style="color:#c62828;">⚠️ 加载失败: '+e.message+'</div>';
 });
 

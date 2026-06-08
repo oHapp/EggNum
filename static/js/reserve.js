@@ -8,14 +8,23 @@ var reserveLinked = true;     // linkage toggle
 document.addEventListener('DOMContentLoaded', function() {
   loadReserve();
 
-  // Linkage toggle
+  // Linkage toggle with confirm
   var tog = document.getElementById('reserve-link-toggle');
   if (tog) {
     tog.checked = reserveLinked;
+    document.getElementById('reserve-link-label').textContent = '联动: 开';
     tog.addEventListener('change', function() {
-      reserveLinked = tog.checked;
-      document.getElementById('reserve-link-label').textContent =
-        reserveLinked ? '联动: 开' : '联动: 关';
+      var newState = tog.checked;
+      var msg = newState ?
+        '开启联动后，留存 ± 将同步影响出库数量。确定？' :
+        '关闭联动后，留存 ± 不再影响出库。确定？';
+      if (confirm(msg)) {
+        reserveLinked = newState;
+        document.getElementById('reserve-link-label').textContent =
+          reserveLinked ? '联动: 开' : '联动: 关';
+      } else {
+        tog.checked = reserveLinked; // revert
+      }
     });
   }
 });
@@ -153,7 +162,7 @@ function handleReserveDelta(row, delta) {
       if (typeof refreshReserveHints === 'function') refreshReserveHints();
       if (typeof updateReportTotals === 'function') updateReportTotals();
       updateReserveTotals();
-      showReserveToast(delta > 0 ? '📦 +1 已存入留存' : '📤 -1 已取出留存');
+      showReserveToast(delta > 0 ? '📦 +1' : '📤 -1');
     }
   }).catch(function(err) {
     display.value = currentVal;

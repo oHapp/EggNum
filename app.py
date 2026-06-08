@@ -156,7 +156,7 @@ def init_db() -> None:
     """)
     # Migration: add linked column to existing reserve_log
     try:
-        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER NOT NULL DEFAULT 1")
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
     except Exception:
         pass
     db.commit()
@@ -338,6 +338,12 @@ def api_reserve_update():
         return jsonify({"success": False, "error": "delta 不能为 0"}), 400
 
     db = get_db()
+
+    # Ensure linked column exists (migration)
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
 
     # Upsert reserve item
     existing = db.execute(
@@ -649,7 +655,7 @@ def api_reserve_history():
 
     # Migration: ensure linked column exists
     try:
-        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER NOT NULL DEFAULT 1")
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
     except Exception:
         pass
 
@@ -683,7 +689,7 @@ def api_reserve_history():
             "spec": r["spec"],
             "delta": r["delta"],
             "created_at": r["created_at"],
-            "linked": bool(r["linked"]),
+            "linked": bool(r["linked"]) if "linked" in r.keys() else True,
         })
         groups[d]["total_delta"] += r["delta"]
 

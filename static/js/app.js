@@ -335,6 +335,7 @@ function submitToBackend() {
 // ── Save button ──
 async function handleSave() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
+  clearErrorBar();
   var btn = document.getElementById('btn-save');
   var orig = btn.textContent;
   btn.textContent = '⏳ 保存中...';
@@ -442,6 +443,13 @@ function showErrorBar(msg) {
   bar.style.background = '#fce4ec';
   bar.style.borderColor = '#ef9a9a';
   bar.style.color = '#c62828';
+
+  // Flash the header red
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '#c62828';
+    header.style.transition = 'background 0.3s';
+  }
 }
 
 function clearErrorBar() {
@@ -450,6 +458,13 @@ function clearErrorBar() {
   bar.style.background = '';
   bar.style.borderColor = '';
   bar.style.color = '';
+
+  // Restore header
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '';
+    header.style.transition = '';
+  }
 }
 
 function createToastElement() {

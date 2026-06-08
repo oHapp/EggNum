@@ -26,17 +26,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-save').addEventListener('click', handleSave);
   document.getElementById('btn-generate').addEventListener('click', handleGenerateCopy);
 
-  // Dismiss auto-load bar
-  var dismissBtn = document.querySelector('.auto-load-bar__dismiss');
-  if (dismissBtn) {
-    dismissBtn.addEventListener('click', function() {
-      resetAllToZero();
-      hideAutoLoadBar();
-      todayRecordId = null;
-      hasChanges = true;
-      scheduleAutoSave();
-    });
-  }
 
   createToastElement();
   updateDateDisplay();
@@ -228,20 +217,31 @@ function updateReportTotals() {
 
 /** Send reverse deltas to reserve when report quantities change */
 function syncReserveFromReport() {
+  if (!reportLinked) return;
+  var promises = [];
   document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var key = row.dataset.category + '_' + row.dataset.spec;
     var display = row.querySelector('.qty-display');
     var cur = display ? (parseInt(display.value, 10) || 0) : 0;
-    var prev = lastSaved[key] !== undefined ? lastSaved[key] : cur;
+    var prev = (lastSaved[key] !== undefined) ? lastSaved[key] : cur;
     var delta = cur - prev;
     if (delta === 0) return;
     // Reverse: report up → reserve down
-    fetch('/api/reserve', {
+    var p = fetch('/api/reserve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category: row.dataset.category, spec: parseInt(row.dataset.spec), delta: -delta }),
       cache: 'no-store'
-    }).catch(function() {});
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.success) console.error('linkage fail:', row.dataset.category, row.dataset.spec, d.error);
+    }).catch(function(e) { console.error('linkage err:', e); });
+    promises.push(p);
+  });
+  // Update reserve display after sync
+  Promise.allSettled(promises).then(function() {
+    if (typeof refreshReserveHints === 'function') setTimeout(refreshReserveHints, 300);
+    if (typeof refreshReportHints === 'function') setTimeout(refreshReportHints, 300);
+    if (typeof updateReserveTotals === 'function') setTimeout(updateReserveTotals, 300);
   });
 }
 

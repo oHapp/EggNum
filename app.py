@@ -647,6 +647,12 @@ def api_reserve_history():
     """Get or clear reserve change log."""
     db = get_db()
 
+    # Migration: ensure linked column exists
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+
     if request.method == "DELETE":
         dates = request.args.get("dates", "")
         if dates:

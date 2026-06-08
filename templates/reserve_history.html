@@ -34,7 +34,10 @@
 <script>
 var selectMode = false, selectedDates = new Set();
 
-fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d){
+fetch('/api/reserve-history').then(function(r){
+  if (!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}).then(function(d){
   var el = document.getElementById('rh-list');
   if (!d.groups.length) { el.innerHTML = '<div class="att-empty">暂无记录</div>'; return; }
 
@@ -100,8 +103,11 @@ fetch('/api/reserve-history').then(function(r){return r.json()}).then(function(d
     html += '</div>';
   });
   el.innerHTML = html;
+}).catch(function(e){
+  document.getElementById('rh-list').innerHTML = '<div class="att-empty" style="color:#c62828;">⚠️ 加载失败: '+e.message+'</div>';
+});
 
-  document.querySelectorAll('.rh-select-day').forEach(function(cb) {
+document.querySelectorAll('.rh-select-day').forEach(function(cb) {
     cb.addEventListener('change', function() {
       if (cb.checked) selectedDates.add(cb.dataset.date);
       else selectedDates.delete(cb.dataset.date);

@@ -68,7 +68,15 @@ BACKUP_FILE="$BACKUP_DIR/eggnum_$(date +%Y%m%d).db"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始备份..."
 
-docker exec "$CONTAINER_NAME" sqlite3 "$DB_PATH" ".backup /tmp/eggnum_backup.db"
+# Use Python's sqlite3 module (always available in the container)
+docker exec "$CONTAINER_NAME" python3 -c "
+import sqlite3
+src = sqlite3.connect('$DB_PATH')
+dst = sqlite3.connect('/tmp/eggnum_backup.db')
+src.backup(dst)
+dst.close()
+src.close()
+"
 docker cp "$CONTAINER_NAME:/tmp/eggnum_backup.db" "$BACKUP_FILE"
 docker exec "$CONTAINER_NAME" rm /tmp/eggnum_backup.db
 

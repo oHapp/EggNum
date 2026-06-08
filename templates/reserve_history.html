@@ -19,8 +19,8 @@
 .rh-log-time { color:#bbb; margin-left:auto; }
 .rh-link-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .rh-link-dot.on { background:#4caf50; } .rh-link-dot.off { background:#e53935; }
+.rh-link-sep { font-size:11px; padding:2px 0; border-top:1px dashed #ffe0b2; margin:2px 0; }
 .rh-toolbar { display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:8px; padding:8px 14px; margin-bottom:10px; font-size:13px; }
-.rh-link-timeline { font-size:11px; padding:6px 14px; border-top:1px dashed #ddd; color:#999; display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
 </style>
 
 <div id="rh-toolbar" class="rh-toolbar">
@@ -40,52 +40,83 @@ fetch('/api/reserve-history').then(function(r){
   var el = document.getElementById('rh-list');
   if(!d.groups||!d.groups.length){el.innerHTML='<div class="att-empty">暂无记录</div>';return;}
 
+  // Collect all link toggles with timestamps
+  // Collect link toggles with timestamps
+  var allLinkToggles = [];
+  d.groups.forEach(function(g){
+    g.items.forEach(function(it){
+      if(it.category==='__link__') allLinkToggles.push({
+        time: new Date(it.created_at+'Z').getTime(),
+        on: it.delta > 0
+      });
+    });
+  });
+
+  function linkStateAt(timestamp) {
+    // Find the nearest link toggle before this timestamp
+    var state = true; // default ON
+    allLinkToggles.forEach(function(lt){
+      if(lt.time <= timestamp) state = lt.on;
+    });
+    return state;
+  }
+
   var totals={},allDays=[];
   d.groups.slice().reverse().forEach(function(g){
-    var specGroups={},linkEvents=[];
+    var specGroups={};
     g.items.forEach(function(it){
-      if(it.category==='__link__'){linkEvents.push(it);return;}
-      if(it.category==='__联动__'||it.category==='__system__')return;
+      if(it.category==='__link__'||it.category==='__联动__'||it.category==='__system__')return;
       var k=it.category+'_'+it.spec;
       if(!specGroups[k])specGroups[k]={cat:it.category,spec:it.spec,logs:[],netDelta:0};
       specGroups[k].logs.push(it); specGroups[k].netDelta+=it.delta;
     });
     var specs=[];
     Object.keys(specGroups).forEach(function(k){
-      var sg=specGroups[k],collapsed=[],batch=null;
+      var sg=specGroups[k],batches=[],batch=null;
       sg.logs.forEach(function(log){
         var t=new Date(log.created_at+'Z').getTime();
-        if(batch&&(t-batch.lastTime)<=5000&&batch.linked===log.linked){batch.delta+=log.delta;batch.lastTime=t;batch.count++;}
-        else{if(batch)collapsed.push(batch);batch={delta:log.delta,firstTime:t,lastTime:t,count:1,linked:log.linked};}
+        // Check if link toggle happened between this and previous log
+        var linkBetween = false;
+        if(batch){
+          linkBetween = allLinkToggles.some(function(lt){
+            return lt.time > batch.lastTime && lt.time < t;
+          });
+        }
+        if(batch&&(t-batch.lastTime)<=5000&&batch.linked===log.linked&&!linkBetween){
+          batch.delta+=log.delta;batch.lastTime=t;batch.count++;
+        }else{
+          if(batch)batches.push(batch);
+          if(linkBetween){
+            // Determine the new state after toggle
+            var nextState = linkStateAt(t);
+            batches.push({isLinkSep:true, on: nextState});
+          }
+          batch={delta:log.delta,firstTime:t,lastTime:t,count:1,linked:log.linked};
+        }
       });
-      if(batch)collapsed.push(batch);
+      if(batch)batches.push(batch);
       var old=(totals[k]||0),neu=old+sg.netDelta; totals[k]=neu;
-      specs.push({cat:sg.cat,spec:sg.spec,netDelta:sg.netDelta,oldTotal:old,newTotal:neu,batches:collapsed});
+      specs.push({cat:sg.cat,spec:sg.spec,netDelta:sg.netDelta,oldTotal:old,newTotal:neu,batches:batches});
     });
-    allDays.push({date:g.date,specs:specs,linkEvents:linkEvents});
+    allDays.push({date:g.date,specs:specs});
   });
   allDays.reverse();
+
   var html='';
   allDays.forEach(function(day){
     var dn=day.specs.reduce(function(s,sp){return s+sp.netDelta},0);
     html+='<div class="rh-day" data-date="'+day.date+'"><div class="rh-day__head"><span>'+day.date+'</span><span style="font-size:12px;color:#999;">净变动: '+(dn>0?'+':'')+dn+'</span><label><input type="checkbox" class="rh-select-day" data-date="'+day.date+'"> 选择</label></div>';
-    // Link toggle timeline
-    if(day.linkEvents&&day.linkEvents.length){
-      html+='<div class="rh-link-timeline">⚙ 联动: ';
-      day.linkEvents.forEach(function(ev,i){
-        var t=new Date(ev.created_at+'Z'),ts=t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0');
-        var on=ev.delta>0;
-        html+=(i>0?' → ':'')+'<span style="color:'+(on?'#4caf50':'#e53935')+';font-weight:600;">'+(on?'开启':'关闭')+'</span> <span style="color:#bbb;">'+ts+'</span>';
-      });
-      html+='</div>';
-    }
     day.specs.forEach(function(sp){
       var cls=sp.netDelta>0?'pos':(sp.netDelta<0?'neg':'');
       html+='<div class="rh-spec"><div class="rh-spec__main" onclick="this.nextElementSibling.classList.toggle(\'open\')"><span class="rh-spec__name">'+sp.cat+sp.spec+'枚</span><span class="rh-spec__net '+cls+'">'+(sp.netDelta>0?'+':'')+sp.netDelta+' '+sp.oldTotal+'→'+sp.newTotal+'</span></div><div class="rh-spec__detail">';
       sp.batches.forEach(function(b){
-        var t=new Date(b.firstTime),ts=t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
-        var dot=b.linked?'<span class="rh-link-dot on" title="联动开启"></span>':'<span class="rh-link-dot off" title="联动关闭"></span>';
-        html+='<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
+        if(b.isLinkSep){
+          html+='<div class="rh-link-sep" style="color:'+(b.on?'#4caf50':'#e53935')+';">⚙ 联动'+(b.on?'开启':'关闭')+'</div>';
+        }else{
+          var t=new Date(b.firstTime),ts=t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0')+':'+t.getSeconds().toString().padStart(2,'0');
+          var dot=b.linked?'<span class="rh-link-dot on" title="联动开启"></span>':'<span class="rh-link-dot off" title="联动关闭"></span>';
+          html+='<div class="rh-log-row">'+dot+'<span>'+(b.delta>0?'+':'')+b.delta+(b.count>1?' (×'+b.count+')':'')+'</span><span class="rh-log-time">'+ts+'</span></div>';
+        }
       });
       html+='</div></div>';
     });

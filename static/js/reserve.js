@@ -2,8 +2,9 @@
  * 扣留页面逻辑 v1.3.4-dev
  */
 var reserveReady = false;
-var reserveConfirmed = false; // one-time confirm when report=0
-var reserveLinked = true;     // linkage toggle
+var reserveConfirmed = false;
+var reserveLinked = true;
+var reserveCooldown = {}; // per-row cooldown to prevent race condition
 
 document.addEventListener('DOMContentLoaded', function() {
   loadReserve();
@@ -23,6 +24,13 @@ document.addEventListener('DOMContentLoaded', function() {
       reserveLinked = newState;
       document.getElementById('reserve-link-label').textContent =
         reserveLinked ? '联动: 开' : '联动: 关';
+
+      // Log linkage toggle event
+      fetch('/api/reserve/log-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_date: new Date().toISOString().split('T')[0], category: '__link__', spec: 0, delta: newState ? 1 : 0 })
+      }).then(function(r){ return r.json(); }).then(function(d){ console.log('link log:', d); }).catch(function(e){ console.error('link log err:', e); });
     });
   }
 });
@@ -103,6 +111,13 @@ function getReportQty(cat, sp) {
 function handleReserveDelta(row, delta) {
   var category = row.dataset.category;
   var spec = parseInt(row.dataset.spec);
+  var key = category + '_' + spec;
+
+  // Cooldown: prevent race condition on rapid clicks
+  if (reserveCooldown[key]) return;
+  reserveCooldown[key] = true;
+  setTimeout(function() { reserveCooldown[key] = false; }, 300);
+
   var display = row.querySelector('.qty-display');
   var currentVal = parseInt(display.value) || 0;
 

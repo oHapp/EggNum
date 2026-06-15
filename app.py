@@ -40,6 +40,7 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
     "虫草蛋":   [30, 15, 10],
     "小花蛋":   [30, 20, 15],
     "五黑初生蛋": [20],
+    "五黑彩鸡蛋": [30],
     "初生蛋":   [20],
 }
 
@@ -128,6 +129,19 @@ def init_db() -> None:
             UNIQUE(category, spec)
         );
 
+        CREATE TABLE IF NOT EXISTS reserve_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            category    TEXT NOT NULL,
+            spec        INTEGER NOT NULL,
+            delta       INTEGER NOT NULL,
+            linked      INTEGER NOT NULL DEFAULT 1,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reserve_log_date
+            ON reserve_log(record_date);
+
         CREATE TABLE IF NOT EXISTS attendance (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             record_date DATE NOT NULL,
@@ -141,6 +155,11 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_attendance_date
             ON attendance(record_date);
     """)
+    # Migration: add linked column to existing reserve_log
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
     db.commit()
 
 
@@ -321,6 +340,12 @@ def api_reserve_update():
 
     db = get_db()
 
+    # Ensure linked column exists (migration)
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
+
     # Upsert reserve item
     existing = db.execute(
         "SELECT id, quantity FROM reserve_items WHERE category = ? AND spec = ?",
@@ -364,6 +389,14 @@ def api_reserve_update():
                     "UPDATE record_items SET quantity = ? WHERE id = ?",
                     (new_report_qty, item_row["id"]),
                 )
+
+    # Log the change (linked=1 if synced with report, 0 if standalone)
+    log_date = report_date if report_date else date.today().isoformat()
+    linked = 1 if report_date else 0
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?, ?, ?, ?, ?)",
+        (log_date, category, spec, delta, linked),
+    )
 
     db.commit()
     return jsonify({"success": True, "quantity": new_qty})
@@ -608,6 +641,76 @@ def api_attendance_export():
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/reserve-history")
+def reserve_history_page():
+    """扣留历史记录页面"""
+    return render_template("reserve_history.html")
+
+
+@app.route("/api/reserve-history", methods=["GET", "DELETE"])
+def api_reserve_history():
+    """Get or clear reserve change log."""
+    db = get_db()
+
+    # Migration: ensure linked column exists
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
+
+    if request.method == "DELETE":
+        dates = request.args.get("dates", "")
+        if dates:
+            date_list = [d.strip() for d in dates.split(",") if d.strip()]
+            placeholders = ",".join("?" for _ in date_list)
+            db.execute(
+                f"DELETE FROM reserve_log WHERE record_date IN ({placeholders})",
+                date_list,
+            )
+        else:
+            db.execute("DELETE FROM reserve_log")
+        db.commit()
+        return jsonify({"success": True})
+
+    rows = db.execute(
+        """SELECT record_date, category, spec, delta, created_at
+           FROM reserve_log ORDER BY record_date DESC, created_at DESC"""
+    ).fetchall()
+
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for r in rows:
+        d = r["record_date"]
+        if d not in groups:
+            groups[d] = {"date": d, "items": [], "total_delta": 0}
+        groups[d]["items"].append({
+            "category": r["category"],
+            "spec": r["spec"],
+            "delta": r["delta"],
+            "created_at": r["created_at"],
+            "linked": bool(r["linked"]) if "linked" in r.keys() else True,
+        })
+        groups[d]["total_delta"] += r["delta"]
+
+    return jsonify({"groups": list(groups.values())})
+
+
+@app.route("/api/reserve/log-event", methods=["POST"])
+def api_reserve_log_event():
+    """Log a system event (linkage toggle) to reserve_log."""
+    data = _parse_json_body()
+    if not data: return jsonify({"success": False}), 400
+    db = get_db()
+    try: db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except: pass
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?,?,?,?,?)",
+        (data.get("record_date", date.today().isoformat()), data.get("category","__link__"), data.get("spec",0), data.get("delta",0), 1)
+    )
+    db.commit()
+    return jsonify({"success": True})
 
 
 @app.route("/api/debug")

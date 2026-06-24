@@ -1,6 +1,6 @@
 # 鸡蛋库存登记助手 — 功能说明
 
-> v1.3.10-dev | Flask + SQLite + Vanilla JS + PWA
+> v1.3.11-dev | Flask + SQLite + Vanilla JS + PWA
 
 ---
 

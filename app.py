@@ -53,7 +53,7 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
 }
 
 DEFAULT_STORE_NAME = "鹏泰(大福店)"
-APP_VERSION = "v1.3.10"
+APP_VERSION = "v1.3.11-dev"
 
 
 # ==========================================

@@ -30,6 +30,13 @@ app.config["DATABASE"] = os.path.join(_db_dir, "eggnum.db")
 
 os.makedirs(_db_dir, exist_ok=True)
 
+
+# Inject app version into all templates (for footer + SW cache busting)
+@app.context_processor
+def inject_app_version():
+    return {"app_version": APP_VERSION}
+
+
 # ==========================================
 #  Preset templates (from design.md §3.1)
 # ==========================================
@@ -46,6 +53,7 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
 }
 
 DEFAULT_STORE_NAME = "鹏泰(大福店)"
+APP_VERSION = "v1.3.10-dev"
 
 
 # ==========================================

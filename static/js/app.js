@@ -1,5 +1,5 @@
 /**
- * 鸡蛋库存登记助手 — 首页逻辑 v1.2.0
+ * 鸡蛋库存登记助手 — 首页逻辑 v1.3.10
  */
 var todayRecordId = null;
 var autoSaveBusy = false;
@@ -9,6 +9,8 @@ var hasChanges = false;
 var reportLinked = false;
 var reportLinkedConfirmed = false; // one-time confirm when reserve=0
 var lastSaved = {};
+var saveGeneration = {};   // per-spec generation counter to prevent stale saves
+var retryActive = false;   // true when retry is in progress
 
 document.addEventListener('DOMContentLoaded', function() {
   // Init quantity controllers (report tab only)
@@ -57,9 +59,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
   autoLoadToday();
 
-  // Quantity change events
+  // Quantity change events — bump generation to track stale saves
   document.addEventListener('change', function(e) {
-    if (e.target.classList.contains('qty-display')) { scheduleAutoSave(); }
+    if (e.target.classList.contains('qty-display')) {
+      var row = e.target.closest('.spec-row');
+      if (row) {
+        var key = row.dataset.category + '_' + row.dataset.spec;
+        saveGeneration[key] = (saveGeneration[key] || 0) + 1;
+      }
+      scheduleAutoSave();
+    }
   });
   document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     row.addEventListener('pointerup', function() {
@@ -332,8 +341,28 @@ function scheduleAutoSave() {
   doSaveWithRetry();
 }
 
+function lockRetryRows() {
+  retryActive = true;
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var display = row.querySelector('.qty-display');
+    var cur = display ? (parseInt(display.value) || 0) : 0;
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    if (lastSaved[key] !== cur) {
+      row.classList.add('spec-row--saving');
+    }
+  });
+}
+
+function unlockRetryRows() {
+  retryActive = false;
+  document.querySelectorAll('#tab-report .spec-row.spec-row--saving').forEach(function(row) {
+    row.classList.remove('spec-row--saving');
+  });
+}
+
 function doSaveWithRetry() {
   if (retryCount > 0) {
+    lockRetryRows();
     showAutoLoadBar('🔄 重试中 (' + retryCount + '/' + MAX_RETRIES + ')...', false);
   } else {
     clearErrorBar();
@@ -343,6 +372,7 @@ function doSaveWithRetry() {
   submitToBackend().then(function() {
     hasChanges = false;
     retryCount = 0;
+    unlockRetryRows();
     updateReportTotals();
     clearErrorBar();
     showAutoLoadBar('✅ 已保存', false);
@@ -359,8 +389,14 @@ function doSaveWithRetry() {
       var delay = [1000, 3000, 6000][retryCount - 1];
       setTimeout(function() { doSaveWithRetry(); }, delay);
     } else {
+      unlockRetryRows();
       showErrorBar('⚠️ 保存失败，数据未同步！请检查网络后刷新页面');
       if (typeof showToast === 'function') showToast('⚠️ 网络异常，保存失败！', 4000);
+      // Reload from server to resync after final failure
+      autoLoadToday().then(function() {
+        if (typeof loadReserve === 'function') loadReserve();
+        showAutoLoadBar('📥 已从服务器重载数据', true);
+      }).catch(function() {});
     }
   }).finally(function() {
     if (retryCount >= MAX_RETRIES || retryCount === 0) {
@@ -404,6 +440,13 @@ function submitToBackend() {
     body.merge = true;  // tell server to merge, not replace
   }
 
+  // Capture generation counters so we can detect stale responses
+  var capturedGen = {};
+  for (var j = 0; j < body.items.length; j++) {
+    var k = body.items[j].category + '_' + body.items[j].spec;
+    capturedGen[k] = saveGeneration[k] || 0;
+  }
+
   return fetch('/api/submit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -418,10 +461,23 @@ function submitToBackend() {
     return resp.json();
   }).then(function(data) {
     if (data.success) {
+      // Check for stale save: if user changed any spec while we were saving, skip snapshot
+      var hasNewer = false;
+      for (var ck in capturedGen) {
+        if ((saveGeneration[ck] || 0) > capturedGen[ck]) {
+          hasNewer = true; break;
+        }
+      }
       todayRecordId = data.record_id;
       updateDateDisplay();
       if (reportLinked) syncReserveFromReport();
-      snapshotValues();
+      if (!hasNewer) {
+        snapshotValues();
+      }
+      // If user kept editing, trigger a fresh save
+      if (hasNewer && typeof scheduleAutoSave === 'function') {
+        scheduleAutoSave();
+      }
       return data;
     }
     throw new Error(data.error || 'unknown');

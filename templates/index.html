@@ -125,7 +125,7 @@
     <div class="att-form__row">
       <button type="button" id="att-add-slot" class="att-add-btn">+ 添加时段</button>
       <label class="att-step-label">
-        <input type="checkbox" id="att-step-30" checked> 30分步进
+        <input type="checkbox" id="att-step-30"> 30分步进
       </label>
     </div>
 
@@ -156,10 +156,10 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/quantity.js?v=13"></script>
-<script src="/static/js/app.js?v=13"></script>
-<script src="/static/js/reserve.js?v=13"></script>
-<script src="/static/js/attendance.js?v=13"></script>
-<script src="/static/js/tabs.js?v=13"></script>
-<script src="/static/js/dev.js?v=13"></script>
+<script src="/static/js/quantity.js?v={{ app_version }}"></script>
+<script src="/static/js/app.js?v={{ app_version }}"></script>
+<script src="/static/js/reserve.js?v={{ app_version }}"></script>
+<script src="/static/js/attendance.js?v={{ app_version }}"></script>
+<script src="/static/js/tabs.js?v={{ app_version }}"></script>
+<script src="/static/js/dev.js?v={{ app_version }}"></script>
 {% endblock %}

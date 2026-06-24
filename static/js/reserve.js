@@ -163,9 +163,13 @@ function handleReserveDelta(row, delta) {
     cache: 'no-store'
   }).then(function(r) { return r.json(); }).then(function(data) {
     if (!data.success) {
+      // Rollback: restore reserve UI + totals + cross-tab hints
       display.value = currentVal;
       row.classList.toggle('is-empty', currentVal === 0);
       display.classList.toggle('is-zero', currentVal === 0);
+      updateReserveTotals();
+      refreshReportHints();
+      if (typeof refreshReserveHints === 'function') refreshReserveHints();
       showReserveToast('⚠️ ' + (data.error || '操作失败'));
     } else {
       if (reserveLinked) {
@@ -178,9 +182,13 @@ function handleReserveDelta(row, delta) {
       showReserveToast(delta > 0 ? '📦 +1' : '📤 -1');
     }
   }).catch(function(err) {
+    // Rollback: restore reserve UI + totals + cross-tab hints
     display.value = currentVal;
     row.classList.toggle('is-empty', currentVal === 0);
     display.classList.toggle('is-zero', currentVal === 0);
+    updateReserveTotals();
+    refreshReportHints();
+    if (typeof refreshReserveHints === 'function') refreshReserveHints();
     console.error('handleReserveDelta:', err);
   });
 }

@@ -91,4 +91,29 @@ done
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 当前备份列表:"
 ls -lh "$BACKUP_DIR"/eggnum_*.db 2>/dev/null | awk '{print "  " $NF "  (" $5 ")"}'
 
+# ============================================================
+#  异地备份（可选 — 取消注释启用）
+# ============================================================
+# 将最新备份同步到远程，防止宿主机磁盘损坏导致数据丢失。
+# 以下提供三种方式，按需选择一种：
+
+# ── 方式1: rclone（推荐，支持阿里云 OSS / 腾讯云 COS / S3 / WebDAV 等）──
+# 安装: curl https://rclone.org/install.sh | sudo bash
+# 配置: rclone config（按向导添加 remote，命名为 eggnum-backup）
+# rclone copy "$BACKUP_FILE" eggnum-backup:eggnum-backups/
+
+# ── 方式2: SCP 到另一台服务器 ──
+# scp "$BACKUP_FILE" user@backup-server:/path/to/backups/
+
+# ── 方式3: 通过 Telegram Bot 发送通知（小文件可用）──
+# 1. 找 @BotFather 创建 Bot，获取 TOKEN
+# 2. 找 @userinfobot 获取你的 CHAT_ID
+# TOKEN="123456:ABC..."
+# CHAT_ID="123456789"
+# curl -s -F chat_id="$CHAT_ID" -F document=@"$BACKUP_FILE" \
+#   "https://api.telegram.org/bot$TOKEN/sendDocument" > /dev/null
+
+# ── 轮转远程备份（以 rclone 为例）──
+# rclone delete --min-age ${KEEP_DAYS}d eggnum-backup:eggnum-backups/
+
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 完成"

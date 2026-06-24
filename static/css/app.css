@@ -349,6 +349,13 @@ body {
   background: rgba(76, 175, 80, 0.04);
 }
 
+/* Row locked during retry — visual dim + disable interaction */
+.spec-row--saving {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
 .spec-label {
   flex: 1;
   font-size: 15px;

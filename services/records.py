@@ -27,8 +27,15 @@ def build_ordered_items(templates: dict[str, list[int]], quantities_by_key: dict
     return result
 
 
+def list_reserve_items(db) -> list[dict]:
+    rows = db.execute(
+        "SELECT category, spec, quantity FROM reserve_items ORDER BY category, spec"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def load_today_record(db, today_str: str):
-    return db.execute(
+    row = db.execute(
         """
         SELECT id, store_name, record_date
         FROM records
@@ -38,6 +45,17 @@ def load_today_record(db, today_str: str):
         """,
         (today_str,),
     ).fetchone()
+
+    if not row:
+        return {"found": False}
+
+    return {
+        "found": True,
+        "record_id": row["id"],
+        "store_name": row["store_name"],
+        "record_date": row["record_date"],
+        "items": load_record_items(db, row["id"]),
+    }
 
 
 def load_record_items(db, record_id: int):

@@ -34,8 +34,9 @@ from services.records import (
     delete_history_record,
     delete_reserve_history,
     generate_output_text as generate_output_text_service,
+    list_reserve_items,
     get_history_detail,
-    load_record_items as load_record_items_service,
+    load_record_items,
     load_today_record as load_today_record_service,
     log_reserve_event,
     reserve_api_update as reserve_api_update_service,
@@ -66,10 +67,6 @@ def build_ordered_items(
     quantities_by_key: dict[str, int] | None = None,
 ) -> list[dict]:
     return build_ordered_items_service(PRESET_TEMPLATES, quantities_by_key)
-
-
-def _item_key(category: str, spec: int) -> str:
-    return f"{category}_{spec}"
 
 
 # ==========================================
@@ -107,11 +104,6 @@ def format_date_cn(d: date) -> str:
     """Convert a date object to Chinese format like '6月4日'."""
     return f"{d.month}月{d.day}日"
 
-
-
-def _load_items_for_record(record_id: int) -> list[dict]:
-    db = get_db()
-    return load_record_items_service(db, record_id)
 
 
 # ==========================================
@@ -153,11 +145,7 @@ def history():
 def api_reserve():
     """Get all reserve quantities (cumulative, cross-day)."""
     db = get_db()
-    rows = db.execute(
-        "SELECT category, spec, quantity FROM reserve_items ORDER BY category, spec"
-    ).fetchall()
-    items = [dict(r) for r in rows]
-    return jsonify({"items": items})
+    return jsonify({"items": list_reserve_items(db)})
 
 
 @app.route("/api/reserve", methods=["POST"])
@@ -409,34 +397,7 @@ def api_today():
     """
     today_str = request.args.get("date", date.today().isoformat())
     db = get_db()
-
-    row = db.execute(
-        """
-        SELECT id, store_name, record_date
-        FROM records
-        WHERE record_date = ?
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        (today_str,),
-    ).fetchone()
-
-    if not row:
-        resp = jsonify({"found": False})
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
-
-    items = _load_items_for_record(row["id"])
-
-    resp = jsonify(
-        {
-            "found": True,
-            "record_id": row["id"],
-            "store_name": row["store_name"],
-            "record_date": row["record_date"],
-            "items": items,
-        }
-    )
+    resp = jsonify(load_today_record_service(db, today_str))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
@@ -513,7 +474,7 @@ def api_history_detail(record_id: int):
 
     # --- GET: return detail ---
     if request.method == "GET":
-        detail = get_history_detail(db, record_id, _load_items_for_record, generate_output_text)
+        detail = get_history_detail(db, record_id, load_record_items, generate_output_text)
         if not detail:
             return jsonify({"success": False, "error": "记录不存在"}), 404
         return jsonify({"success": True, **detail})
@@ -529,7 +490,7 @@ def api_history_detail(record_id: int):
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"success": False, "error": "无效的请求数据"}), 400
-        updated, status = update_history_record(db, record_id, data, _load_items_for_record, generate_output_text)
+        updated, status = update_history_record(db, record_id, data, load_record_items, generate_output_text)
         if not updated:
             return jsonify({"success": False, "error": "记录不存在"}), status
         return jsonify(updated)
@@ -542,7 +503,7 @@ def api_history_detail(record_id: int):
 def api_history_text(record_id: int):
     """Re-generate text for a specific record (for one-tap copy)."""
     db = get_db()
-    detail = get_history_detail(db, record_id, _load_items_for_record, generate_output_text)
+    detail = get_history_detail(db, record_id, load_record_items, generate_output_text)
     if not detail:
         return jsonify({"success": False, "error": "记录不存在"}), 404
 

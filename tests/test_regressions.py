@@ -108,6 +108,31 @@ class EggNumRegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json["success"], False)
 
+    def test_today_endpoint_uses_latest_record_shape(self):
+        first_category = next(iter(egg.PRESET_TEMPLATES))
+        first_spec = egg.PRESET_TEMPLATES[first_category][0]
+        first_key = f"{first_category}_{first_spec}"
+        items = _all_report_items({first_key: 3})
+
+        created = self.client.post("/api/submit", json={
+            "store_name": egg.DEFAULT_STORE_NAME,
+            "record_date": "2026-06-30",
+            "items": items,
+        })
+        self.assertEqual(created.status_code, 200)
+
+        today = self.client.get("/api/today?date=2026-06-30")
+        self.assertEqual(today.status_code, 200)
+        self.assertTrue(today.json["found"])
+        self.assertEqual(today.json["record_id"], created.json["record_id"])
+        self.assertEqual(today.json["items"][0]["quantity"], 3)
+
+    def test_reserve_api_returns_items_array(self):
+        response = self.client.get("/api/reserve")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("items", response.json)
+        self.assertIsInstance(response.json["items"], list)
+
 
 if __name__ == "__main__":
     unittest.main()

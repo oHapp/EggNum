@@ -63,7 +63,7 @@ tag:     v1.3.4
 
 ```bash
 python -m unittest discover -s tests -v
-python -m py_compile app.py scripts/inspect_db.py tests/test_regressions.py
+python -m py_compile app.py config.py db.py scripts/inspect_db.py tests/test_regressions.py
 ```
 
 当前测试重点覆盖：
@@ -87,3 +87,13 @@ python scripts/inspect_db.py /data/eggnum.db --from 2026-06-25 --to 2026-06-29
 
 - `!` 表示同一天有多条出库主记录
 - `?` 表示当天出库总数为 0
+
+---
+
+## 🧱 模块边界
+
+当前重构方向：
+
+- `config.py`：版本号、产品模板、默认店名、Flask 配置
+- `db.py`：SQLite 连接、关闭、建表、轻量迁移
+- `app.py`：暂时保留路由和业务流程，后续再拆 services/routes

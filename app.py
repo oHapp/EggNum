@@ -11,49 +11,25 @@
 - DELETE /api/history/<id>   删除某条记录
 """
 
-import os
-import sqlite3
 from datetime import date, datetime
 
-from flask import Flask, g, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request
+
+from config import APP_VERSION, DEFAULT_STORE_NAME, PRESET_TEMPLATES, init_app_config
+from db import close_db, get_db as _get_db, init_db as _init_db
 
 # ==========================================
 #  App factory
 # ==========================================
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-eggnum-2026")
-
-# Database path: honour EGGS_DB_DIR env var, fallback to instance/
-_db_dir = os.environ.get("EGGS_DB_DIR", app.instance_path)
-app.config["DATABASE"] = os.path.join(_db_dir, "eggnum.db")
-
-os.makedirs(_db_dir, exist_ok=True)
+init_app_config(app)
 
 
 # Inject app version into all templates (for footer + SW cache busting)
 @app.context_processor
 def inject_app_version():
     return {"app_version": APP_VERSION}
-
-
-# ==========================================
-#  Preset templates (from design.md §3.1)
-# ==========================================
-
-PRESET_TEMPLATES: dict[str, list[int]] = {
-    "农家蛋":   [30, 15],
-    "五谷蛋":   [30, 15, 10],
-    "虫草蛋":   [30, 15, 10],
-    "小花蛋":   [30, 20, 15],
-    "五黑初生蛋": [20],
-    "五黑彩鸡蛋": [30],
-    "珍珠鸡蛋": [20],
-    "初生蛋":   [20],
-}
-
-DEFAULT_STORE_NAME = "鹏泰(大福店)"
-APP_VERSION = os.environ.get("APP_VERSION", "v1.3.14-dev")
 
 
 # ==========================================
@@ -85,174 +61,17 @@ def _item_key(category: str, spec: int) -> str:
 # ==========================================
 
 
-def get_db() -> sqlite3.Connection:
-    """Get a database connection for the current request."""
-    if "db" not in g:
-        g.db = sqlite3.connect(app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA journal_mode=WAL")
-        g.db.execute("PRAGMA foreign_keys=ON")
-    return g.db
+def get_db():
+    return _get_db(app)
 
 
 @app.teardown_appcontext
-def close_db(exception: object) -> None:
-    """Close the database connection at the end of a request."""
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
-
-
-def _merge_duplicate_record_dates(db: sqlite3.Connection) -> None:
-    """
-    Keep one outflow record per date without silently discarding older details.
-
-    Older releases cleaned duplicate dates by deleting all but the newest row. If
-    duplicate rows already exist, copy any non-zero quantity that is missing from
-    the newest row before removing the duplicate shell.
-    """
-    duplicate_dates = db.execute(
-        """
-        SELECT record_date
-        FROM records
-        GROUP BY record_date
-        HAVING COUNT(*) > 1
-        """
-    ).fetchall()
-
-    for date_row in duplicate_dates:
-        rows = db.execute(
-            """
-            SELECT id
-            FROM records
-            WHERE record_date = ?
-            ORDER BY created_at DESC, id DESC
-            """,
-            (date_row["record_date"],),
-        ).fetchall()
-        if len(rows) <= 1:
-            continue
-
-        keep_id = rows[0]["id"]
-        for dup in rows[1:]:
-            dup_items = db.execute(
-                """
-                SELECT category, spec, quantity, sort_order
-                FROM record_items
-                WHERE record_id = ?
-                ORDER BY sort_order
-                """,
-                (dup["id"],),
-            ).fetchall()
-
-            for item in dup_items:
-                if item["quantity"] <= 0:
-                    continue
-                existing = db.execute(
-                    """
-                    SELECT id, quantity
-                    FROM record_items
-                    WHERE record_id = ? AND category = ? AND spec = ?
-                    """,
-                    (keep_id, item["category"], item["spec"]),
-                ).fetchone()
-                if existing:
-                    if existing["quantity"] == 0:
-                        db.execute(
-                            "UPDATE record_items SET quantity = ? WHERE id = ?",
-                            (item["quantity"], existing["id"]),
-                        )
-                else:
-                    db.execute(
-                        """
-                        INSERT INTO record_items
-                            (record_id, category, spec, quantity, sort_order)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (
-                            keep_id,
-                            item["category"],
-                            item["spec"],
-                            item["quantity"],
-                            item["sort_order"],
-                        ),
-                    )
-
-            db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
-            db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
+def _close_db(exception: object) -> None:
+    close_db(exception)
 
 
 def init_db() -> None:
-    """Create tables if they don't exist."""
-    db = get_db()
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS records (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            store_name  TEXT NOT NULL DEFAULT '鹏泰(大福店)',
-            record_date DATE NOT NULL,
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS record_items (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            record_id   INTEGER NOT NULL,
-            category    TEXT NOT NULL,
-            spec        INTEGER NOT NULL,
-            quantity    INTEGER NOT NULL DEFAULT 0,
-            sort_order  INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (record_id) REFERENCES records(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_items_record
-            ON record_items(record_id);
-        CREATE INDEX IF NOT EXISTS idx_records_date
-            ON records(record_date);
-
-        CREATE TABLE IF NOT EXISTS reserve_items (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            category    TEXT NOT NULL,
-            spec        INTEGER NOT NULL,
-            quantity    INTEGER NOT NULL DEFAULT 0,
-            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(category, spec)
-        );
-
-        CREATE TABLE IF NOT EXISTS reserve_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            record_date DATE NOT NULL,
-            category    TEXT NOT NULL,
-            spec        INTEGER NOT NULL,
-            delta       INTEGER NOT NULL,
-            linked      INTEGER NOT NULL DEFAULT 1,
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_reserve_log_date
-            ON reserve_log(record_date);
-
-        CREATE TABLE IF NOT EXISTS attendance (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            record_date DATE NOT NULL,
-            time_start  TEXT NOT NULL,
-            time_end    TEXT NOT NULL,
-            hours       REAL NOT NULL DEFAULT 0,
-            note        TEXT DEFAULT '',
-            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_attendance_date
-            ON attendance(record_date);
-    """)
-    # Migration: add linked column to existing reserve_log
-    try:
-        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
-    except Exception:
-        pass
-    _merge_duplicate_record_dates(db)
-    db.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_records_record_date_unique ON records(record_date)"
-    )
-    db.commit()
+    _init_db(app)
 
 
 # ==========================================

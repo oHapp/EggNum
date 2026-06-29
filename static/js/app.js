@@ -1,15 +1,20 @@
 /**
- * 鸡蛋库存登记助手 — 首页逻辑 v1.2.0
+ * 鸡蛋库存登记助手 — 首页逻辑 v1.3.13
  */
 var todayRecordId = null;
 var autoSaveBusy = false;
 var autoSavePending = false;
 var pageReady = false;
 var hasChanges = false;
+var reportLinked = false;
+var reportLinkedConfirmed = false; // one-time confirm when reserve=0
+var lastSaved = {};
+var saveGeneration = {};   // per-spec generation counter to prevent stale saves
+var retryActive = false;   // true when retry is in progress
 
 document.addEventListener('DOMContentLoaded', function() {
-  // Init quantity controllers
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  // Init quantity controllers (report tab only)
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     new QuantityController(row);
   });
 
@@ -24,27 +29,48 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('btn-save').addEventListener('click', handleSave);
   document.getElementById('btn-generate').addEventListener('click', handleGenerateCopy);
 
-  // Dismiss auto-load bar
-  var dismissBtn = document.querySelector('.auto-load-bar__dismiss');
-  if (dismissBtn) {
-    dismissBtn.addEventListener('click', function() {
-      resetAllToZero();
-      hideAutoLoadBar();
-      todayRecordId = null;
-      hasChanges = true;
-      scheduleAutoSave();
-    });
-  }
 
   createToastElement();
   updateDateDisplay();
+  initDatePicker();
+
+  // Report linkage toggle (default OFF)
+  var rTog = document.getElementById('report-link-toggle');
+  if (rTog) {
+    rTog.checked = reportLinked;
+    rTog.addEventListener('change', function() {
+      if (rTog.checked) {
+        if (!confirm('开启联动后，出库 ± 将反向影响扣留数量。确定？')) {
+          rTog.checked = false;
+          return;
+        }
+      }
+      reportLinked = rTog.checked;
+      document.getElementById('report-link-label').textContent =
+        reportLinked ? '联动: 开' : '联动: 关';
+
+      fetch('/api/reserve/log-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ record_date: new Date().toISOString().split('T')[0], category: '__link__', spec: 0, delta: reportLinked ? 1 : 0 })
+      }).catch(function(){});
+    });
+  }
+
   autoLoadToday();
 
-  // Quantity change events
+  // Quantity change events — bump generation to track stale saves
   document.addEventListener('change', function(e) {
-    if (e.target.classList.contains('qty-display')) { scheduleAutoSave(); }
+    if (e.target.classList.contains('qty-display')) {
+      var row = e.target.closest('.spec-row');
+      if (row) {
+        var key = row.dataset.category + '_' + row.dataset.spec;
+        saveGeneration[key] = (saveGeneration[key] || 0) + 1;
+      }
+      scheduleAutoSave();
+    }
   });
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     row.addEventListener('pointerup', function() {
       setTimeout(function() { scheduleAutoSave(); }, 50);
     });
@@ -58,9 +84,99 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ── Date helpers ──
 function updateDateDisplay() {
-  var d = new Date();
+  var ds = getDateStr();
+  var parts = ds.split('-');
   var el = document.querySelector('.meta-bar__date');
-  if (el) el.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  if (!el) return;
+  el.textContent = parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+
+  var isOverride = false;
+  try { isOverride = !!localStorage.getItem('eggnum_dev_date'); } catch(e) {}
+
+  // Highlight override state
+  el.style.background = isOverride ? '#fff3e0' : '#f0f0f0';
+  el.style.color = isOverride ? '#e65100' : '';
+
+  // Show/hide reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) resetBtn.style.display = isOverride ? '' : 'none';
+}
+
+function initDatePicker() {
+  var wrap = document.querySelector('.meta-bar__date-wrap');
+  if (!wrap) return;
+
+  // Create a transparent date input overlaid on the date text
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'meta-bar__date-input';
+  input.value = getDateStr();
+  wrap.style.position = 'relative';
+  wrap.appendChild(input);
+
+  input.addEventListener('change', function() {
+    if (input.value) {
+      var today = localDateStr();
+      if (input.value === today) {
+        clearDateOverride();
+      } else {
+        setDateOverride(input.value);
+      }
+    } else {
+      clearDateOverride();
+    }
+    todayRecordId = null;
+    lastSaved = {};
+    saveGeneration = {};
+    updateDateDisplay();
+    pageReady = false;
+    autoLoadToday();
+    if (typeof loadReserve === 'function') loadReserve();
+  });
+
+  // Reset button
+  var resetBtn = document.querySelector('.meta-bar__reset-date');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      clearDateOverride();
+      todayRecordId = null;
+      lastSaved = {};
+      saveGeneration = {};
+      updateDateDisplay();
+      pageReady = false;
+      autoLoadToday();
+      if (typeof loadReserve === 'function') loadReserve();
+      showToast('📅 已重置为今天');
+    });
+  }
+}
+
+// Dev date override (set via dev panel, stored in localStorage)
+function getDateStr() {
+  try {
+    var ov = localStorage.getItem('eggnum_dev_date');
+    if (ov) {
+      var today = localDateStr();
+      var setOn = localStorage.getItem('eggnum_dev_date_set_on');
+      if (!setOn || setOn !== today || ov === today) {
+        clearDateOverride();
+        return today;
+      }
+      return ov;
+    }
+  } catch(e) {}
+  return localDateStr();
+}
+
+function setDateOverride(value) {
+  localStorage.setItem('eggnum_dev_date', value);
+  localStorage.setItem('eggnum_dev_date_set_on', localDateStr());
+}
+
+function clearDateOverride() {
+  localStorage.removeItem('eggnum_dev_date');
+  localStorage.removeItem('eggnum_dev_date_set_on');
 }
 
 function localDateStr(date) {
@@ -74,12 +190,18 @@ function localDateStr(date) {
 async function autoLoadToday() {
   showAutoLoadBar('⏳ 加载中...', false);
   try {
-    var resp = await fetch('/api/today?date=' + localDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
+    var resp = await fetch('/api/today?date=' + getDateStr() + '&_=' + Date.now(), { cache: 'no-store' });
     var data = await resp.json();
 
     if (!data.found) {
+      todayRecordId = null;
+      resetAllToZero();
+      snapshotValues();
+      saveGeneration = {};
       showAutoLoadBar('📋 今日暂无记录', false);
       pageReady = true;
+      updateReportTotals();
+      refreshReserveHints();
       return;
     }
 
@@ -87,7 +209,7 @@ async function autoLoadToday() {
     for (var i = 0; i < data.items.length; i++) {
       var item = data.items[i];
       var row = document.querySelector(
-        '.spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
+        '#tab-report .spec-row[data-category="' + escapeAttr(item.category) + '"][data-spec="' + item.spec + '"]'
       );
       if (!row) continue;
       var display = row.querySelector('.qty-display');
@@ -103,57 +225,250 @@ async function autoLoadToday() {
     }
 
     showAutoLoadBar('📥 已加载今日数据', true);
+    snapshotValues();
+    refreshReserveHints();
+    updateReportTotals();
   } catch (err) {
     console.error('autoLoadToday:', err);
     showAutoLoadBar('⚠️ 加载失败', false);
   } finally {
-    // Delay pageReady to prevent spurious auto-save during load
     setTimeout(function() { pageReady = true; }, 300);
   }
 }
 
-// ── Auto-save ──
+/** Update category + grand totals on report tab */
+function updateReportTotals() {
+  var grandTotal = 0;
+  document.querySelectorAll('#tab-report .category-group').forEach(function(group) {
+    var catTotal = 0;
+    group.querySelectorAll('.spec-row').forEach(function(row) {
+      var d = row.querySelector('.qty-display');
+      catTotal += d ? (parseInt(d.value, 10) || 0) : 0;
+    });
+    grandTotal += catTotal;
+    var el = group.querySelector('.category-total');
+    if (el) el.textContent = catTotal;
+  });
+  // Meta bar total
+  var totalEl = document.querySelector('.meta-bar__total');
+  if (totalEl) totalEl.textContent = '合计: ' + grandTotal;
+}
+
+/** Send reverse deltas to reserve when report quantities change */
+function syncReserveFromReport() {
+  if (!reportLinked) return;
+  var promises = [];
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    var cur = display ? (parseInt(display.value, 10) || 0) : 0;
+    var prev = (lastSaved[key] !== undefined) ? lastSaved[key] : cur;
+    var delta = cur - prev;
+    if (delta === 0) return;
+
+    // If report increases (delta > 0), reserve decreases → may go negative
+    if (delta > 0) {
+      // Check reserve quantity
+      var reserveRow = document.querySelector(
+        '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+      );
+      var reserveQty = 0;
+      if (reserveRow) {
+        var rd = reserveRow.querySelector('.qty-display');
+        reserveQty = rd ? (parseInt(rd.value, 10) || 0) : 0;
+      }
+      if (reserveQty < delta && !reportLinkedConfirmed) {
+        if (!confirm('⚠️ 扣留数量不足（当前 ' + reserveQty + '，需要 ' + delta + '），确定继续？\n\n确认后本次访问不再提示。')) {
+          // Rollback the report change to previous value
+          display.value = prev;
+          row.classList.toggle('is-empty', prev === 0);
+          display.classList.toggle('is-zero', prev === 0);
+          // Need to re-save the rolled-back report value
+          if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
+          return;
+        }
+        reportLinkedConfirmed = true;
+      }
+    }
+
+    var p = fetch('/api/reserve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: row.dataset.category, spec: parseInt(row.dataset.spec), delta: -delta }),
+      cache: 'no-store'
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.success) {
+        // Update reserve tab DOM display
+        var rr = document.querySelector(
+          '#tab-reserve .spec-row[data-category="' + escapeAttr(row.dataset.category) + '"][data-spec="' + row.dataset.spec + '"]'
+        );
+        if (rr) {
+          var rd2 = rr.querySelector('.qty-display');
+          if (rd2) {
+            var newVal = (parseInt(rd2.value, 10) || 0) - delta;
+            if (newVal < 0) newVal = 0;
+            rd2.value = newVal;
+            rr.classList.toggle('is-empty', newVal === 0);
+            rd2.classList.toggle('is-zero', newVal === 0);
+          }
+        }
+      }
+    }).catch(function(e) { console.error('linkage err:', e); });
+    promises.push(p);
+  });
+
+  Promise.allSettled(promises).then(function() {
+    if (typeof refreshReserveHints === 'function') refreshReserveHints();
+    if (typeof refreshReportHints === 'function') refreshReportHints();
+    if (typeof updateReserveTotals === 'function') updateReserveTotals();
+  });
+}
+
+function snapshotValues() {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    var display = row.querySelector('.qty-display');
+    lastSaved[key] = display ? (parseInt(display.value) || 0) : 0;
+  });
+}
+
+/** Copy reserve quantities to hints on report tab (fetches from API) */
+function refreshReserveHints() {
+  fetch('/api/reserve', { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var map = {};
+      for (var i = 0; i < data.items.length; i++) {
+        map[data.items[i].category + '_' + data.items[i].spec] = data.items[i].quantity;
+      }
+      document.querySelectorAll('#tab-report .reserve-qty-hint').forEach(function(hint) {
+        var key = hint.dataset.category + '_' + hint.dataset.spec;
+        hint.textContent = '扣留:' + (map[key] || 0);
+      });
+    })
+    .catch(function() {});
+}
+
+// ── Auto-save with retry ──
+var retryCount = 0;
+var MAX_RETRIES = 3;
+
 function scheduleAutoSave() {
   if (!pageReady) return;
   hasChanges = true;
   if (autoSaveBusy) { autoSavePending = true; return; }
   autoSaveBusy = true;
   autoSavePending = false;
+  retryCount = 0;
 
-  showAutoLoadBar('📝 保存中...', false);
+  doSaveWithRetry();
+}
+
+function lockRetryRows() {
+  retryActive = true;
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
+    var display = row.querySelector('.qty-display');
+    var cur = display ? (parseInt(display.value) || 0) : 0;
+    var key = row.dataset.category + '_' + row.dataset.spec;
+    if (lastSaved[key] !== cur) {
+      row.classList.add('spec-row--saving');
+    }
+  });
+}
+
+function unlockRetryRows() {
+  retryActive = false;
+  document.querySelectorAll('#tab-report .spec-row.spec-row--saving').forEach(function(row) {
+    row.classList.remove('spec-row--saving');
+  });
+}
+
+function doSaveWithRetry() {
+  if (retryCount > 0) {
+    lockRetryRows();
+    showAutoLoadBar('🔄 重试中 (' + retryCount + '/' + MAX_RETRIES + ')...', false);
+  } else {
+    clearErrorBar();
+    showAutoLoadBar('📝 保存中...', false);
+  }
 
   submitToBackend().then(function() {
     hasChanges = false;
+    retryCount = 0;
+    unlockRetryRows();
+    updateReportTotals();
+    clearErrorBar();
     showAutoLoadBar('✅ 已保存', false);
   }).catch(function(err) {
-    console.error('autoSave failed:', err);
-    showAutoLoadBar('⚠️ ' + (err.message || '保存失败'), false);
+    retryCount++;
+    if (retryCount < MAX_RETRIES) {
+      // Gradually tint header toward red
+      var intensity = retryCount / MAX_RETRIES;
+      var header = document.querySelector('.app-header');
+      if (header) {
+        header.style.background = 'rgba(198, 40, 40, ' + intensity.toFixed(2) + ')';
+        header.style.transition = 'background 0.5s';
+      }
+      var delay = [1000, 3000, 6000][retryCount - 1];
+      setTimeout(function() { doSaveWithRetry(); }, delay);
+    } else {
+      unlockRetryRows();
+      showErrorBar('⚠️ 保存失败，数据未同步！请检查网络后刷新页面');
+      if (typeof showToast === 'function') showToast('⚠️ 网络异常，保存失败！', 4000);
+      // Reload from server to resync after final failure
+      autoLoadToday().then(function() {
+        if (typeof loadReserve === 'function') loadReserve();
+        showAutoLoadBar('📥 已从服务器重载数据', true);
+      }).catch(function() {});
+    }
   }).finally(function() {
-    autoSaveBusy = false;
-    if (autoSavePending) { autoSavePending = false; scheduleAutoSave(); }
-    else {
-      setTimeout(function() {
-        var bar = document.getElementById('auto-load-bar');
-        var textEl = bar && bar.querySelector('.auto-load-bar__text');
-        if (textEl && textEl.textContent.indexOf('已保存') >= 0) {
-          showAutoLoadBar('📥 已加载今日数据', true);
-        }
-      }, 2500);
+    if (retryCount >= MAX_RETRIES || retryCount === 0) {
+      autoSaveBusy = false;
+      if (autoSavePending) { autoSavePending = false; scheduleAutoSave(); }
+      else if (retryCount === 0) {
+        setTimeout(function() {
+          var bar = document.getElementById('auto-load-bar');
+          var textEl = bar && bar.querySelector('.auto-load-bar__text');
+          if (textEl && textEl.textContent.indexOf('已保存') >= 0) {
+            showAutoLoadBar('📥 已加载今日数据', true);
+          }
+        }, 2500);
+      }
     }
   });
 }
 
 function saveNowSync() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows, record_id: todayRecordId };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows, record_id: todayRecordId };
   navigator.sendBeacon('/api/submit', JSON.stringify(body));
 }
 
 // ── Backend submit ──
 function submitToBackend() {
   var rows = collectRows();
-  var body = { store_name: getStoreName(), record_date: localDateStr(), items: rows };
+  var body = { store_name: getStoreName(), record_date: getDateStr(), items: rows };
   if (todayRecordId) body.record_id = todayRecordId;
+
+  // Send only changed items to avoid overwriting concurrent edits
+  var changed = [];
+  for (var i = 0; i < rows.length; i++) {
+    var key = rows[i].category + '_' + rows[i].spec;
+    if (lastSaved[key] !== rows[i].quantity) {
+      changed.push(rows[i]);
+    }
+  }
+  if (todayRecordId && changed.length > 0 && changed.length < rows.length) {
+    body.items = changed;
+    body.merge = true;  // tell server to merge, not replace
+  }
+
+  // Capture generation counters so we can detect stale responses
+  var capturedGen = {};
+  for (var j = 0; j < body.items.length; j++) {
+    var k = body.items[j].category + '_' + body.items[j].spec;
+    capturedGen[k] = saveGeneration[k] || 0;
+  }
 
   return fetch('/api/submit', {
     method: 'POST',
@@ -169,8 +484,23 @@ function submitToBackend() {
     return resp.json();
   }).then(function(data) {
     if (data.success) {
+      // Check for stale save: if user changed any spec while we were saving, skip snapshot
+      var hasNewer = false;
+      for (var ck in capturedGen) {
+        if ((saveGeneration[ck] || 0) > capturedGen[ck]) {
+          hasNewer = true; break;
+        }
+      }
       todayRecordId = data.record_id;
       updateDateDisplay();
+      if (reportLinked) syncReserveFromReport();
+      if (!hasNewer) {
+        snapshotValues();
+      }
+      // If user kept editing, trigger a fresh save
+      if (hasNewer && typeof scheduleAutoSave === 'function') {
+        scheduleAutoSave();
+      }
       return data;
     }
     throw new Error(data.error || 'unknown');
@@ -180,6 +510,7 @@ function submitToBackend() {
 // ── Save button ──
 async function handleSave() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
+  clearErrorBar();
   var btn = document.getElementById('btn-save');
   var orig = btn.textContent;
   btn.textContent = '⏳ 保存中...';
@@ -202,7 +533,7 @@ async function handleSave() {
 async function handleGenerateCopy() {
   if (!pageReady) { showToast('⚠️ 页面加载中'); return; }
   var rows = collectRows();
-  var text = generateOutputText(getStoreName(), localDateStr(), rows);
+  var text = generateOutputText(getStoreName(), getDateStr(), rows);
 
   var btn = document.getElementById('btn-generate');
   var orig = btn.textContent;
@@ -235,7 +566,7 @@ function getStoreName() {
 
 function collectRows() {
   var rows = [];
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var display = row.querySelector('.qty-display');
     var rawVal = display.value.trim();
     var qty = (rawVal === '' || !/^\d+$/.test(rawVal)) ? 0 : parseInt(rawVal, 10);
@@ -254,7 +585,7 @@ function generateOutputText(storeName, dateStr, rows) {
 }
 
 function resetAllToZero() {
-  document.querySelectorAll('.spec-row').forEach(function(row) {
+  document.querySelectorAll('#tab-report .spec-row').forEach(function(row) {
     var d = row.querySelector('.qty-display');
     if (d) { d.value = '0'; row.classList.add('is-empty'); d.classList.add('is-zero'); }
   });
@@ -267,6 +598,7 @@ function escapeAttr(str) {
 function showAutoLoadBar(msg, showDismiss) {
   var bar = document.getElementById('auto-load-bar');
   if (!bar) return;
+  // Don't clear header error state here — callers must explicitly clearErrorBar()
   bar.querySelector('.auto-load-bar__text').textContent = msg;
   var btn = bar.querySelector('.auto-load-bar__dismiss');
   if (btn) btn.style.display = showDismiss ? '' : 'none';
@@ -276,6 +608,38 @@ function showAutoLoadBar(msg, showDismiss) {
 function hideAutoLoadBar() {
   var bar = document.getElementById('auto-load-bar');
   if (bar) bar.style.display = 'none';
+}
+
+function showErrorBar(msg) {
+  var bar = document.getElementById('auto-load-bar');
+  if (!bar) return;
+  bar.querySelector('.auto-load-bar__text').textContent = msg;
+  bar.style.display = 'flex';
+  bar.style.background = '#fce4ec';
+  bar.style.borderColor = '#ef9a9a';
+  bar.style.color = '#c62828';
+
+  // Flash the header red
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '#c62828';
+    header.style.transition = 'background 0.3s';
+  }
+}
+
+function clearErrorBar() {
+  var bar = document.getElementById('auto-load-bar');
+  if (!bar) return;
+  bar.style.background = '';
+  bar.style.borderColor = '';
+  bar.style.color = '';
+
+  // Restore header
+  var header = document.querySelector('.app-header');
+  if (header) {
+    header.style.background = '';
+    header.style.transition = '';
+  }
 }
 
 function createToastElement() {

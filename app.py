@@ -30,6 +30,13 @@ app.config["DATABASE"] = os.path.join(_db_dir, "eggnum.db")
 
 os.makedirs(_db_dir, exist_ok=True)
 
+
+# Inject app version into all templates (for footer + SW cache busting)
+@app.context_processor
+def inject_app_version():
+    return {"app_version": APP_VERSION}
+
+
 # ==========================================
 #  Preset templates (from design.md §3.1)
 # ==========================================
@@ -40,10 +47,13 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
     "虫草蛋":   [30, 15, 10],
     "小花蛋":   [30, 20, 15],
     "五黑初生蛋": [20],
+    "五黑彩鸡蛋": [30],
+    "珍珠鸡蛋": [20],
     "初生蛋":   [20],
 }
 
 DEFAULT_STORE_NAME = "鹏泰(大福店)"
+APP_VERSION = os.environ.get("APP_VERSION", "v1.3.13")
 
 
 # ==========================================
@@ -93,6 +103,85 @@ def close_db(exception: object) -> None:
         db.close()
 
 
+def _merge_duplicate_record_dates(db: sqlite3.Connection) -> None:
+    """
+    Keep one outflow record per date without silently discarding older details.
+
+    Older releases cleaned duplicate dates by deleting all but the newest row. If
+    duplicate rows already exist, copy any non-zero quantity that is missing from
+    the newest row before removing the duplicate shell.
+    """
+    duplicate_dates = db.execute(
+        """
+        SELECT record_date
+        FROM records
+        GROUP BY record_date
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+
+    for date_row in duplicate_dates:
+        rows = db.execute(
+            """
+            SELECT id
+            FROM records
+            WHERE record_date = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (date_row["record_date"],),
+        ).fetchall()
+        if len(rows) <= 1:
+            continue
+
+        keep_id = rows[0]["id"]
+        for dup in rows[1:]:
+            dup_items = db.execute(
+                """
+                SELECT category, spec, quantity, sort_order
+                FROM record_items
+                WHERE record_id = ?
+                ORDER BY sort_order
+                """,
+                (dup["id"],),
+            ).fetchall()
+
+            for item in dup_items:
+                if item["quantity"] <= 0:
+                    continue
+                existing = db.execute(
+                    """
+                    SELECT id, quantity
+                    FROM record_items
+                    WHERE record_id = ? AND category = ? AND spec = ?
+                    """,
+                    (keep_id, item["category"], item["spec"]),
+                ).fetchone()
+                if existing:
+                    if existing["quantity"] == 0:
+                        db.execute(
+                            "UPDATE record_items SET quantity = ? WHERE id = ?",
+                            (item["quantity"], existing["id"]),
+                        )
+                else:
+                    db.execute(
+                        """
+                        INSERT INTO record_items
+                            (record_id, category, spec, quantity, sort_order)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            keep_id,
+                            item["category"],
+                            item["spec"],
+                            item["quantity"],
+                            item["sort_order"],
+                        ),
+                    )
+
+            db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
+            db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
+
+
 def init_db() -> None:
     """Create tables if they don't exist."""
     db = get_db()
@@ -118,7 +207,51 @@ def init_db() -> None:
             ON record_items(record_id);
         CREATE INDEX IF NOT EXISTS idx_records_date
             ON records(record_date);
+
+        CREATE TABLE IF NOT EXISTS reserve_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            category    TEXT NOT NULL,
+            spec        INTEGER NOT NULL,
+            quantity    INTEGER NOT NULL DEFAULT 0,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(category, spec)
+        );
+
+        CREATE TABLE IF NOT EXISTS reserve_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            category    TEXT NOT NULL,
+            spec        INTEGER NOT NULL,
+            delta       INTEGER NOT NULL,
+            linked      INTEGER NOT NULL DEFAULT 1,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reserve_log_date
+            ON reserve_log(record_date);
+
+        CREATE TABLE IF NOT EXISTS attendance (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_date DATE NOT NULL,
+            time_start  TEXT NOT NULL,
+            time_end    TEXT NOT NULL,
+            hours       REAL NOT NULL DEFAULT 0,
+            note        TEXT DEFAULT '',
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_attendance_date
+            ON attendance(record_date);
     """)
+    # Migration: add linked column to existing reserve_log
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
+    _merge_duplicate_record_dates(db)
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_records_record_date_unique ON records(record_date)"
+    )
     db.commit()
 
 
@@ -262,6 +395,416 @@ def history():
 # ==========================================
 
 
+# ── Reserve (库存留存) ──
+
+
+@app.route("/api/reserve")
+def api_reserve():
+    """Get all reserve quantities (cumulative, cross-day)."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT category, spec, quantity FROM reserve_items ORDER BY category, spec"
+    ).fetchall()
+    items = [dict(r) for r in rows]
+    return jsonify({"items": items})
+
+
+@app.route("/api/reserve", methods=["POST"])
+def api_reserve_update():
+    """
+    Update reserve quantity for a single spec and sync with today's report.
+
+    Body: { category, spec, delta }
+    - delta > 0: increase reserve, decrease today's report
+    - delta < 0: decrease reserve, increase today's report
+    """
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    category = data.get("category", "")
+    spec = data.get("spec", 0)
+    delta = data.get("delta", 0)
+    report_date = data.get("date", None)  # None = linkage OFF, skip report sync
+
+    if delta == 0:
+        return jsonify({"success": False, "error": "delta 不能为 0"}), 400
+
+    db = get_db()
+
+    # Ensure linked column exists (migration)
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
+
+    # Upsert reserve item
+    existing = db.execute(
+        "SELECT id, quantity FROM reserve_items WHERE category = ? AND spec = ?",
+        (category, spec),
+    ).fetchone()
+
+    if existing:
+        new_qty = existing["quantity"] + delta
+        if new_qty < 0:
+            return jsonify({"success": False, "error": "留存不足"}), 400
+        db.execute(
+            "UPDATE reserve_items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_qty, existing["id"]),
+        )
+    else:
+        if delta < 0:
+            return jsonify({"success": False, "error": "留存不足"}), 400
+        new_qty = delta
+        db.execute(
+            "INSERT INTO reserve_items (category, spec, quantity) VALUES (?, ?, ?)",
+            (category, spec, delta),
+        )
+
+    # Sync with report only if date provided (linkage ON)
+    if report_date:
+        report_row = db.execute(
+            "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC LIMIT 1",
+            (report_date,),
+        ).fetchone()
+
+        if report_row:
+            item_row = db.execute(
+                "SELECT id, quantity FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
+                (report_row["id"], category, spec),
+            ).fetchone()
+            if item_row:
+                new_report_qty = item_row["quantity"] - delta
+                if new_report_qty < 0:
+                    new_report_qty = 0
+                db.execute(
+                    "UPDATE record_items SET quantity = ? WHERE id = ?",
+                    (new_report_qty, item_row["id"]),
+                )
+
+    # Log the change (linked=1 if synced with report, 0 if standalone)
+    log_date = report_date if report_date else date.today().isoformat()
+    linked = 1 if report_date else 0
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?, ?, ?, ?, ?)",
+        (log_date, category, spec, delta, linked),
+    )
+
+    db.commit()
+    return jsonify({"success": True, "quantity": new_qty})
+
+
+# ── Attendance (考勤打卡) ──
+
+
+@app.route("/api/attendance")
+def api_attendance_list():
+    """List attendance entries. Query: ?days=3 (default 3 days) or ?from=&to="""
+    db = get_db()
+    days = request.args.get("days", type=int)
+    date_from = request.args.get("from")
+    date_to = request.args.get("to")
+
+    if date_from and date_to:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date BETWEEN ? AND ? ORDER BY record_date DESC, time_start",
+            (date_from, date_to),
+        ).fetchall()
+    elif days:
+        rows = db.execute(
+            "SELECT * FROM attendance WHERE record_date >= date('now', ?) ORDER BY record_date DESC, time_start",
+            (f"-{days} days",),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
+        ).fetchall()
+
+    return jsonify({"entries": [dict(r) for r in rows]})
+
+
+@app.route("/api/attendance", methods=["POST"])
+def api_attendance_create():
+    """Create an attendance entry. Body: {record_date, time_start, time_end, hours, note}"""
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    record_date = data.get("record_date", date.today().isoformat())
+    time_start = data.get("time_start", "")
+    time_end = data.get("time_end", "")
+    hours = float(data.get("hours", 0))
+    note = data.get("note", "")
+
+    if not time_start or not time_end:
+        return jsonify({"success": False, "error": "请选择时间"}), 400
+
+    db = get_db()
+    cursor = db.execute(
+        """INSERT INTO attendance (record_date, time_start, time_end, hours, note)
+           VALUES (?, ?, ?, ?, ?)""",
+        (record_date, time_start, time_end, hours, note),
+    )
+    db.commit()
+
+    return jsonify({"success": True, "id": cursor.lastrowid})
+
+
+@app.route("/api/attendance/<int:entry_id>", methods=["PUT", "DELETE"])
+def api_attendance_modify(entry_id: int):
+    """Update or delete an attendance entry."""
+    db = get_db()
+    row = db.execute("SELECT id FROM attendance WHERE id = ?", (entry_id,)).fetchone()
+    if not row:
+        return jsonify({"success": False, "error": "记录不存在"}), 404
+
+    if request.method == "DELETE":
+        db.execute("DELETE FROM attendance WHERE id = ?", (entry_id,))
+        db.commit()
+        return jsonify({"success": True})
+
+    # PUT: update
+    data = _parse_json_body()
+    if not data:
+        return jsonify({"success": False, "error": "无效数据"}), 400
+
+    updates = []
+    params = []
+    for field in ["record_date", "time_start", "time_end", "hours", "note"]:
+        if field in data:
+            updates.append(f"{field} = ?")
+            val = data[field]
+            if field == "hours":
+                val = float(val)
+            params.append(val)
+
+    if not updates:
+        return jsonify({"success": False, "error": "无更新字段"}), 400
+
+    params.append(entry_id)
+    db.execute(
+        f"UPDATE attendance SET {', '.join(updates)} WHERE id = ?", params
+    )
+    db.commit()
+
+    return jsonify({"success": True})
+
+
+@app.route("/attendance-history")
+def attendance_history_page():
+    """Full attendance history page."""
+    return render_template("attendance_history.html")
+
+
+@app.route("/api/attendance-history")
+def api_attendance_history():
+    """Get all attendance entries for the full history page."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
+    ).fetchall()
+    entries = [dict(r) for r in rows]
+    # Group by date
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for e in entries:
+        d = e["record_date"]
+        if d not in groups:
+            groups[d] = {"entries": [], "total": 0}
+        groups[d]["entries"].append(e)
+        groups[d]["total"] += e["hours"]
+
+    result = []
+    for d, g in groups.items():
+        result.append({
+            "date": d,
+            "total": round(g["total"], 2),
+            "entries": g["entries"],
+        })
+    return jsonify({"groups": result})
+
+
+@app.route("/api/attendance/export")
+def api_attendance_export():
+    """Generate Excel report matching the template format."""
+    import io as _io, os as _os
+
+    try:
+        import openpyxl as _xl
+        from openpyxl.styles import Font, Alignment, Border, Side
+    except ImportError:
+        return jsonify({"success": False, "error": "openpyxl 未安装"}), 500
+
+    date_from = request.args.get("from", "")
+    date_to = request.args.get("to", "")
+
+    if not date_from or not date_to:
+        return jsonify({"success": False, "error": "请指定起止日期"}), 400
+
+    db = get_db()
+    rows = db.execute(
+        """SELECT * FROM attendance
+           WHERE record_date BETWEEN ? AND ?
+           ORDER BY record_date, time_start""",
+        (date_from, date_to),
+    ).fetchall()
+
+    # Load template (preserve all formatting — just clear values)
+    template_path = _os.path.join(_os.path.dirname(__file__), "考勤报表_2026_03_28_to_04_30.xlsx")
+    has_template = _os.path.exists(template_path)
+
+    if has_template:
+        wb = _xl.load_workbook(template_path)
+        ws = wb.active
+        # Only clear values in data rows (2 to max_row), keep formatting
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                cell.value = None
+    else:
+        wb = _xl.Workbook()
+        ws = wb.active
+        ws.title = "考勤报表"
+        for i, h in enumerate(["日期", "时间段", "时长", "备注"], 1):
+            c = ws.cell(row=1, column=i, value=h)
+            c.font = Font(bold=True, size=11)
+        ws.column_dimensions["A"].width = 14
+        ws.column_dimensions["B"].width = 36
+        ws.column_dimensions["C"].width = 8
+        ws.column_dimensions["D"].width = 14
+
+    # Group by date
+    from collections import defaultdict
+    groups: dict[str, list] = defaultdict(list)
+    for r in rows:
+        groups[r["record_date"]].append(r)
+
+    # Fill data — only set values, don't touch formatting
+    row_idx = 2
+    total_hours = 0.0
+
+    for d in sorted(groups.keys()):
+        seg_count = len(groups[d])
+        time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
+        day_hours = sum(r["hours"] for r in groups[d])
+        notes = "、".join(r["note"] for r in groups[d] if r["note"])
+        total_hours += day_hours
+
+        c_date = ws.cell(row=row_idx, column=1); c_date.value = d
+        c_time = ws.cell(row=row_idx, column=2); c_time.value = time_ranges
+        c_hours = ws.cell(row=row_idx, column=3); c_hours.value = day_hours
+        c_note = ws.cell(row=row_idx, column=4); c_note.value = notes
+
+        # Alignment: date + hours = vertical center; time range = top + wrap
+        v_center = Alignment(vertical="center")
+        top_wrap = Alignment(vertical="top", wrap_text=True)
+        c_date.alignment = v_center
+        c_time.alignment = top_wrap
+        c_hours.alignment = v_center
+        c_note.alignment = v_center
+
+        # Multi-segment: increase row height
+        if seg_count > 1:
+            ws.row_dimensions[row_idx].height = 15 * seg_count
+
+        row_idx += 1
+
+    # Total row — only if not using template (template already has formatted total row)
+    # Write value into the last data+1 row, keeping any existing formatting
+    total_cell_date = ws.cell(row=row_idx, column=1)
+    total_cell_hours = ws.cell(row=row_idx, column=3)
+    total_cell_date.value = "合计"
+    total_cell_hours.value = round(total_hours, 2)
+
+    # If no template, bold the total row
+    if not has_template:
+        total_cell_date.font = Font(bold=True, size=11)
+        total_cell_hours.font = Font(bold=True, size=11)
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from flask import send_file
+
+    filename = f"考勤报表_{date_from}_to_{date_to}.xlsx"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@app.route("/reserve-history")
+def reserve_history_page():
+    """扣留历史记录页面"""
+    return render_template("reserve_history.html")
+
+
+@app.route("/api/reserve-history", methods=["GET", "DELETE"])
+def api_reserve_history():
+    """Get or clear reserve change log."""
+    db = get_db()
+
+    # Migration: ensure linked column exists
+    try:
+        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except Exception:
+        pass
+
+    if request.method == "DELETE":
+        dates = request.args.get("dates", "")
+        if dates:
+            date_list = [d.strip() for d in dates.split(",") if d.strip()]
+            placeholders = ",".join("?" for _ in date_list)
+            db.execute(
+                f"DELETE FROM reserve_log WHERE record_date IN ({placeholders})",
+                date_list,
+            )
+        else:
+            db.execute("DELETE FROM reserve_log")
+        db.commit()
+        return jsonify({"success": True})
+
+    rows = db.execute(
+        """SELECT record_date, category, spec, delta, created_at
+           FROM reserve_log ORDER BY record_date DESC, created_at DESC"""
+    ).fetchall()
+
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for r in rows:
+        d = r["record_date"]
+        if d not in groups:
+            groups[d] = {"date": d, "items": [], "total_delta": 0}
+        groups[d]["items"].append({
+            "category": r["category"],
+            "spec": r["spec"],
+            "delta": r["delta"],
+            "created_at": r["created_at"],
+            "linked": bool(r["linked"]) if "linked" in r.keys() else True,
+        })
+        groups[d]["total_delta"] += r["delta"]
+
+    return jsonify({"groups": list(groups.values())})
+
+
+@app.route("/api/reserve/log-event", methods=["POST"])
+def api_reserve_log_event():
+    """Log a system event (linkage toggle) to reserve_log."""
+    data = _parse_json_body()
+    if not data: return jsonify({"success": False}), 400
+    db = get_db()
+    try: db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
+    except: pass
+    db.execute(
+        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?,?,?,?,?)",
+        (data.get("record_date", date.today().isoformat()), data.get("category","__link__"), data.get("spec",0), data.get("delta",0), 1)
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/debug")
 def api_debug():
     """Show ALL records and their items — for troubleshooting."""
@@ -367,7 +910,8 @@ def api_submit():
     store_name = data.get("store_name", DEFAULT_STORE_NAME)
     record_date_str = data.get("record_date", "")
     items_in = data.get("items", [])
-    record_id = data.get("record_id")  # None → INSERT, int → UPDATE
+    record_id = data.get("record_id")
+    merge_mode = data.get("merge", False)  # True → update only given items
 
     if not items_in:
         return jsonify({"success": False, "error": "没有提交任何数据"}), 400
@@ -387,51 +931,109 @@ def api_submit():
         qty_map[key] = qty
 
     db = get_db()
+    target_date = record_date.isoformat()
+
+    requested_record_id = None
+    try:
+        requested_record_id = int(record_id) if record_id else None
+    except (TypeError, ValueError):
+        requested_record_id = None
+
+    if requested_record_id:
+        existing_record = db.execute(
+            "SELECT id, record_date FROM records WHERE id = ?",
+            (requested_record_id,),
+        ).fetchone()
+        if existing_record and existing_record["record_date"] != target_date:
+            if merge_mode:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "记录日期已切换，请刷新后重新保存",
+                    }
+                ), 409
+            requested_record_id = None
 
     # ── Multi-device: always upsert by DATE. Keep only ONE record per date ──
     same_date = db.execute(
-        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC",
-        (record_date.isoformat(),),
+        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC, id DESC",
+        (target_date,),
     ).fetchall()
 
+    if merge_mode and not same_date:
+        return jsonify(
+            {
+                "success": False,
+                "error": "当前日期还没有记录，不能增量保存",
+            }
+        ), 409
+
     if same_date:
-        # Use the latest record
         used_id = same_date[0]["id"]
         db.execute(
             "UPDATE records SET store_name = ?, record_date = ? WHERE id = ?",
-            (store_name, record_date.isoformat(), used_id),
+            (store_name, target_date, used_id),
         )
-        db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
-        # Clean up duplicate records for same date (legacy data)
+        if not merge_mode:
+            # Full replace: delete all items, re-insert
+            db.execute("DELETE FROM record_items WHERE record_id = ?", (used_id,))
+        # Clean up duplicates
         for dup in same_date[1:]:
             db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
             db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
     else:
         cursor = db.execute(
             "INSERT INTO records (store_name, record_date) VALUES (?, ?)",
-            (store_name, record_date.isoformat()),
+            (store_name, target_date),
         )
         used_id = cursor.lastrowid
 
-    # Insert items in template order
-    sort_idx = 0
-    for cat in PRESET_TEMPLATES:
-        for sp in PRESET_TEMPLATES[cat]:
-            key = _item_key(cat, sp)
-            qty = qty_map.get(key, 0)
-            db.execute(
-                """INSERT INTO record_items
-                   (record_id, category, spec, quantity, sort_order)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (used_id, cat, sp, qty, sort_idx),
-            )
-            sort_idx += 1
+    # Upsert items
+    if merge_mode and same_date:
+        # Only update/insert the changed items
+        for item in items_in:
+            cat = item.get("category", "")
+            sp = item.get("spec", 0)
+            qty = max(0, min(999, int(item.get("quantity", 0))))
+            existing_item = db.execute(
+                "SELECT id FROM record_items WHERE record_id = ? AND category = ? AND spec = ?",
+                (used_id, cat, sp),
+            ).fetchone()
+            if existing_item:
+                db.execute(
+                    "UPDATE record_items SET quantity = ? WHERE id = ?",
+                    (qty, existing_item["id"]),
+                )
+            else:
+                # Find max sort_order for this record
+                max_sort = db.execute(
+                    "SELECT COALESCE(MAX(sort_order), -1) FROM record_items WHERE record_id = ?",
+                    (used_id,),
+                ).fetchone()[0]
+                db.execute(
+                    "INSERT INTO record_items (record_id, category, spec, quantity, sort_order) VALUES (?, ?, ?, ?, ?)",
+                    (used_id, cat, sp, qty, max_sort + 1),
+                )
+    else:
+        # Full replace: insert all items in template order
+        sort_idx = 0
+        for cat in PRESET_TEMPLATES:
+            for sp in PRESET_TEMPLATES[cat]:
+                key = _item_key(cat, sp)
+                qty = qty_map.get(key, 0)
+                db.execute(
+                    """INSERT INTO record_items
+                       (record_id, category, spec, quantity, sort_order)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (used_id, cat, sp, qty, sort_idx),
+                )
+                sort_idx += 1
 
     db.commit()
 
     # Generate output text
     ordered_items = build_ordered_items(qty_map)
-    text = generate_output_text(store_name, record_date.isoformat(), ordered_items)
+    text = generate_output_text(store_name, target_date, ordered_items)
 
     return jsonify(
         {

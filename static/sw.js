@@ -1,13 +1,16 @@
-// Service Worker — v1.1.1
+// Service Worker
 // Strategy: network-first for HTML, cache-first for static assets, never cache API
-const CACHE_NAME = 'eggnum-v4';
+// Cache name auto-injected from registration URL: /static/sw.js?v=<version>
+const swVersion = new URL(self.location).searchParams.get('v') || 'dev';
+const CACHE_NAME = 'eggnum-' + swVersion;
+const VS = '?v=' + swVersion;
 const STATIC_ASSETS = [
-  '/static/css/app.css',
-  '/static/js/quantity.js',
-  '/static/js/app.js',
-  '/static/js/history.js',
+  '/static/css/app.css' + VS,
+  '/static/js/quantity.js' + VS,
+  '/static/js/app.js' + VS,
+  '/static/js/history.js' + VS,
   '/static/manifest.json',
-  '/static/icons/icon-192.png',
+  '/static/icons/icon-192.svg',
   '/static/icons/icon-512.png'
 ];
 

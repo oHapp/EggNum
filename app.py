@@ -17,6 +17,15 @@ from flask import Flask, jsonify, render_template, request
 
 from config import APP_VERSION, DEFAULT_STORE_NAME, PRESET_TEMPLATES, init_app_config
 from db import close_db, get_db as _get_db, init_db as _init_db
+from services.attendance import (
+    create_entry as create_attendance_entry,
+    delete_entry as delete_attendance_entry,
+    entry_exists as attendance_entry_exists,
+    export_rows as attendance_export_rows,
+    history_groups as attendance_history_groups,
+    list_entries as list_attendance_entries,
+    update_entry as update_attendance_entry,
+)
 
 # ==========================================
 #  App factory
@@ -323,22 +332,7 @@ def api_attendance_list():
     days = request.args.get("days", type=int)
     date_from = request.args.get("from")
     date_to = request.args.get("to")
-
-    if date_from and date_to:
-        rows = db.execute(
-            "SELECT * FROM attendance WHERE record_date BETWEEN ? AND ? ORDER BY record_date DESC, time_start",
-            (date_from, date_to),
-        ).fetchall()
-    elif days:
-        rows = db.execute(
-            "SELECT * FROM attendance WHERE record_date >= date('now', ?) ORDER BY record_date DESC, time_start",
-            (f"-{days} days",),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
-        ).fetchall()
-
+    rows = list_attendance_entries(db, days=days, date_from=date_from, date_to=date_to)
     return jsonify({"entries": [dict(r) for r in rows]})
 
 
@@ -359,27 +353,25 @@ def api_attendance_create():
         return jsonify({"success": False, "error": "请选择时间"}), 400
 
     db = get_db()
-    cursor = db.execute(
-        """INSERT INTO attendance (record_date, time_start, time_end, hours, note)
-           VALUES (?, ?, ?, ?, ?)""",
-        (record_date, time_start, time_end, hours, note),
-    )
-    db.commit()
-
-    return jsonify({"success": True, "id": cursor.lastrowid})
+    entry_id = create_attendance_entry(db, {
+        "record_date": record_date,
+        "time_start": time_start,
+        "time_end": time_end,
+        "hours": hours,
+        "note": note,
+    })
+    return jsonify({"success": True, "id": entry_id})
 
 
 @app.route("/api/attendance/<int:entry_id>", methods=["PUT", "DELETE"])
 def api_attendance_modify(entry_id: int):
     """Update or delete an attendance entry."""
     db = get_db()
-    row = db.execute("SELECT id FROM attendance WHERE id = ?", (entry_id,)).fetchone()
-    if not row:
+    if not attendance_entry_exists(db, entry_id):
         return jsonify({"success": False, "error": "记录不存在"}), 404
 
     if request.method == "DELETE":
-        db.execute("DELETE FROM attendance WHERE id = ?", (entry_id,))
-        db.commit()
+        delete_attendance_entry(db, entry_id)
         return jsonify({"success": True})
 
     # PUT: update
@@ -387,24 +379,8 @@ def api_attendance_modify(entry_id: int):
     if not data:
         return jsonify({"success": False, "error": "无效数据"}), 400
 
-    updates = []
-    params = []
-    for field in ["record_date", "time_start", "time_end", "hours", "note"]:
-        if field in data:
-            updates.append(f"{field} = ?")
-            val = data[field]
-            if field == "hours":
-                val = float(val)
-            params.append(val)
-
-    if not updates:
+    if not update_attendance_entry(db, entry_id, data):
         return jsonify({"success": False, "error": "无更新字段"}), 400
-
-    params.append(entry_id)
-    db.execute(
-        f"UPDATE attendance SET {', '.join(updates)} WHERE id = ?", params
-    )
-    db.commit()
 
     return jsonify({"success": True})
 
@@ -419,28 +395,7 @@ def attendance_history_page():
 def api_attendance_history():
     """Get all attendance entries for the full history page."""
     db = get_db()
-    rows = db.execute(
-        "SELECT * FROM attendance ORDER BY record_date DESC, time_start"
-    ).fetchall()
-    entries = [dict(r) for r in rows]
-    # Group by date
-    from collections import OrderedDict
-    groups = OrderedDict()
-    for e in entries:
-        d = e["record_date"]
-        if d not in groups:
-            groups[d] = {"entries": [], "total": 0}
-        groups[d]["entries"].append(e)
-        groups[d]["total"] += e["hours"]
-
-    result = []
-    for d, g in groups.items():
-        result.append({
-            "date": d,
-            "total": round(g["total"], 2),
-            "entries": g["entries"],
-        })
-    return jsonify({"groups": result})
+    return jsonify({"groups": attendance_history_groups(db)})
 
 
 @app.route("/api/attendance/export")
@@ -461,12 +416,7 @@ def api_attendance_export():
         return jsonify({"success": False, "error": "请指定起止日期"}), 400
 
     db = get_db()
-    rows = db.execute(
-        """SELECT * FROM attendance
-           WHERE record_date BETWEEN ? AND ?
-           ORDER BY record_date, time_start""",
-        (date_from, date_to),
-    ).fetchall()
+    rows = attendance_export_rows(db, date_from, date_to)
 
     # Load template (preserve all formatting — just clear values)
     template_path = _os.path.join(_os.path.dirname(__file__), "考勤报表_2026_03_28_to_04_30.xlsx")

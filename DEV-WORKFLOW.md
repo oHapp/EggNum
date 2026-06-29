@@ -54,3 +54,36 @@ tag:     v1.3.4
 ```
 
 每发布一次，第三位 +1。
+
+---
+
+## ✅ 回归测试
+
+每次改保存逻辑、日期逻辑、考勤或留存前后都跑：
+
+```bash
+python -m unittest discover -s tests -v
+python -m py_compile app.py scripts/inspect_db.py tests/test_regressions.py
+```
+
+当前测试重点覆盖：
+
+- 出库跨日期保存保护
+- 考勤历史记录编辑
+- 留存不能扣成负数
+
+---
+
+## 🔎 数据库检查
+
+排查服务器数据时先用只读检查脚本：
+
+```bash
+python scripts/inspect_db.py instance/eggnum.db
+python scripts/inspect_db.py /data/eggnum.db --from 2026-06-25 --to 2026-06-29
+```
+
+输出里的标记：
+
+- `!` 表示同一天有多条出库主记录
+- `?` 表示当天出库总数为 0

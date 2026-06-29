@@ -53,7 +53,7 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
 }
 
 DEFAULT_STORE_NAME = "鹏泰(大福店)"
-APP_VERSION = "v1.3.11-dev"
+APP_VERSION = os.environ.get("APP_VERSION", "v1.3.12")
 
 
 # ==========================================
@@ -101,6 +101,85 @@ def close_db(exception: object) -> None:
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def _merge_duplicate_record_dates(db: sqlite3.Connection) -> None:
+    """
+    Keep one outflow record per date without silently discarding older details.
+
+    Older releases cleaned duplicate dates by deleting all but the newest row. If
+    duplicate rows already exist, copy any non-zero quantity that is missing from
+    the newest row before removing the duplicate shell.
+    """
+    duplicate_dates = db.execute(
+        """
+        SELECT record_date
+        FROM records
+        GROUP BY record_date
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+
+    for date_row in duplicate_dates:
+        rows = db.execute(
+            """
+            SELECT id
+            FROM records
+            WHERE record_date = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (date_row["record_date"],),
+        ).fetchall()
+        if len(rows) <= 1:
+            continue
+
+        keep_id = rows[0]["id"]
+        for dup in rows[1:]:
+            dup_items = db.execute(
+                """
+                SELECT category, spec, quantity, sort_order
+                FROM record_items
+                WHERE record_id = ?
+                ORDER BY sort_order
+                """,
+                (dup["id"],),
+            ).fetchall()
+
+            for item in dup_items:
+                if item["quantity"] <= 0:
+                    continue
+                existing = db.execute(
+                    """
+                    SELECT id, quantity
+                    FROM record_items
+                    WHERE record_id = ? AND category = ? AND spec = ?
+                    """,
+                    (keep_id, item["category"], item["spec"]),
+                ).fetchone()
+                if existing:
+                    if existing["quantity"] == 0:
+                        db.execute(
+                            "UPDATE record_items SET quantity = ? WHERE id = ?",
+                            (item["quantity"], existing["id"]),
+                        )
+                else:
+                    db.execute(
+                        """
+                        INSERT INTO record_items
+                            (record_id, category, spec, quantity, sort_order)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            keep_id,
+                            item["category"],
+                            item["spec"],
+                            item["quantity"],
+                            item["sort_order"],
+                        ),
+                    )
+
+            db.execute("DELETE FROM record_items WHERE record_id = ?", (dup["id"],))
+            db.execute("DELETE FROM records WHERE id = ?", (dup["id"],))
 
 
 def init_db() -> None:
@@ -169,6 +248,10 @@ def init_db() -> None:
         db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
     except Exception:
         pass
+    _merge_duplicate_record_dates(db)
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_records_record_date_unique ON records(record_date)"
+    )
     db.commit()
 
 
@@ -848,18 +931,48 @@ def api_submit():
         qty_map[key] = qty
 
     db = get_db()
+    target_date = record_date.isoformat()
+
+    requested_record_id = None
+    try:
+        requested_record_id = int(record_id) if record_id else None
+    except (TypeError, ValueError):
+        requested_record_id = None
+
+    if requested_record_id:
+        existing_record = db.execute(
+            "SELECT id, record_date FROM records WHERE id = ?",
+            (requested_record_id,),
+        ).fetchone()
+        if existing_record and existing_record["record_date"] != target_date:
+            if merge_mode:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "记录日期已切换，请刷新后重新保存",
+                    }
+                ), 409
+            requested_record_id = None
 
     # ── Multi-device: always upsert by DATE. Keep only ONE record per date ──
     same_date = db.execute(
-        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC",
-        (record_date.isoformat(),),
+        "SELECT id FROM records WHERE record_date = ? ORDER BY created_at DESC, id DESC",
+        (target_date,),
     ).fetchall()
+
+    if merge_mode and not same_date:
+        return jsonify(
+            {
+                "success": False,
+                "error": "当前日期还没有记录，不能增量保存",
+            }
+        ), 409
 
     if same_date:
         used_id = same_date[0]["id"]
         db.execute(
             "UPDATE records SET store_name = ?, record_date = ? WHERE id = ?",
-            (store_name, record_date.isoformat(), used_id),
+            (store_name, target_date, used_id),
         )
         if not merge_mode:
             # Full replace: delete all items, re-insert
@@ -871,7 +984,7 @@ def api_submit():
     else:
         cursor = db.execute(
             "INSERT INTO records (store_name, record_date) VALUES (?, ?)",
-            (store_name, record_date.isoformat()),
+            (store_name, target_date),
         )
         used_id = cursor.lastrowid
 
@@ -920,7 +1033,7 @@ def api_submit():
 
     # Generate output text
     ordered_items = build_ordered_items(qty_map)
-    text = generate_output_text(store_name, record_date.isoformat(), ordered_items)
+    text = generate_output_text(store_name, target_date, ordered_items)
 
     return jsonify(
         {

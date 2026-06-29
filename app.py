@@ -28,11 +28,19 @@ from services.attendance import (
 )
 from services.records import (
     build_ordered_items as build_ordered_items_service,
+    build_history_api_records,
+    build_history_page_groups,
+    debug_records,
+    delete_history_record,
+    delete_reserve_history,
     generate_output_text as generate_output_text_service,
+    get_history_detail,
     load_record_items as load_record_items_service,
     load_today_record as load_today_record_service,
-    list_history_records as list_history_records_service,
+    log_reserve_event,
     reserve_api_update as reserve_api_update_service,
+    reserve_history_groups,
+    update_history_record,
     upsert_record as upsert_record_service,
 )
 
@@ -127,62 +135,10 @@ def index():
 def history():
     """History page — list past records.  Optimized: single batch query for all items."""
     db = get_db()
-    records = list_history_records_service(db)
-
-    if not records:
-        return render_template("history.html", date_groups=[])
-
-    # ★ Optimisation: batch-load all items in ONE query (fixes N+1)
-    record_ids = [r["id"] for r in records]
-    placeholders = ",".join("?" for _ in record_ids)
-    all_items = db.execute(
-        f"""SELECT record_id, category, spec, quantity
-            FROM record_items
-            WHERE record_id IN ({placeholders})
-            ORDER BY record_id, sort_order""",
-        record_ids,
-    ).fetchall()
-
-    # Group items by record_id
-    items_by_record: dict[int, list[dict]] = {}
-    for item in all_items:
-        rid = item["record_id"]
-        if rid not in items_by_record:
-            items_by_record[rid] = []
-        items_by_record[rid].append(
-            {"category": item["category"], "spec": item["spec"], "quantity": item["quantity"]}
-        )
-
-    # Build date groups
-    date_groups: list[dict] = []
-    seen_dates: set[str] = set()
-
-    for row in records:
-        d = row["record_date"]
-        if d not in seen_dates:
-            seen_dates.add(d)
-            date_groups.append({"date_display": d, "records": []})
-
-        items_list = items_by_record.get(row["id"], [])
-        full_text = generate_output_text(row["store_name"], d, items_list)
-
-        # Preview: first 3 lines
-        preview_lines = full_text.split("\n")
-        preview = "\n".join(preview_lines[:3])
-        if len(preview_lines) > 3:
-            preview += "\n..."
-
-        date_groups[-1]["records"].append(
-            {
-                "id": row["id"],
-                "store_name": row["store_name"],
-                "record_date": d,
-                "text_preview": preview,
-                "item_count": len([it for it in items_list if it["quantity"] > 0]),
-            }
-        )
-
-    return render_template("history.html", date_groups=date_groups)
+    return render_template(
+        "history.html",
+        date_groups=build_history_page_groups(db, generate_output_text),
+    )
 
 
 # ==========================================
@@ -415,47 +371,16 @@ def api_reserve_history():
     """Get or clear reserve change log."""
     db = get_db()
 
-    # Migration: ensure linked column exists
-    try:
-        db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
-    except Exception:
-        pass
-
     if request.method == "DELETE":
         dates = request.args.get("dates", "")
         if dates:
             date_list = [d.strip() for d in dates.split(",") if d.strip()]
-            placeholders = ",".join("?" for _ in date_list)
-            db.execute(
-                f"DELETE FROM reserve_log WHERE record_date IN ({placeholders})",
-                date_list,
-            )
+            delete_reserve_history(db, date_list)
         else:
-            db.execute("DELETE FROM reserve_log")
-        db.commit()
+            delete_reserve_history(db)
         return jsonify({"success": True})
 
-    rows = db.execute(
-        """SELECT record_date, category, spec, delta, created_at
-           FROM reserve_log ORDER BY record_date DESC, created_at DESC"""
-    ).fetchall()
-
-    from collections import OrderedDict
-    groups = OrderedDict()
-    for r in rows:
-        d = r["record_date"]
-        if d not in groups:
-            groups[d] = {"date": d, "items": [], "total_delta": 0}
-        groups[d]["items"].append({
-            "category": r["category"],
-            "spec": r["spec"],
-            "delta": r["delta"],
-            "created_at": r["created_at"],
-            "linked": bool(r["linked"]) if "linked" in r.keys() else True,
-        })
-        groups[d]["total_delta"] += r["delta"]
-
-    return jsonify({"groups": list(groups.values())})
+    return jsonify({"groups": reserve_history_groups(db)})
 
 
 @app.route("/api/reserve/log-event", methods=["POST"])
@@ -464,13 +389,7 @@ def api_reserve_log_event():
     data = _parse_json_body()
     if not data: return jsonify({"success": False}), 400
     db = get_db()
-    try: db.execute("ALTER TABLE reserve_log ADD COLUMN linked INTEGER DEFAULT 1")
-    except: pass
-    db.execute(
-        "INSERT INTO reserve_log (record_date, category, spec, delta, linked) VALUES (?,?,?,?,?)",
-        (data.get("record_date", date.today().isoformat()), data.get("category","__link__"), data.get("spec",0), data.get("delta",0), 1)
-    )
-    db.commit()
+    log_reserve_event(db, data, date.today)
     return jsonify({"success": True})
 
 
@@ -478,24 +397,7 @@ def api_reserve_log_event():
 def api_debug():
     """Show ALL records and their items — for troubleshooting."""
     db = get_db()
-    records = db.execute(
-        "SELECT id, store_name, record_date, created_at FROM records ORDER BY record_date DESC, created_at DESC"
-    ).fetchall()
-    result = []
-    for r in records:
-        items = db.execute(
-            "SELECT category, spec, quantity FROM record_items WHERE record_id = ? ORDER BY sort_order",
-            (r["id"],),
-        ).fetchall()
-        qty_sum = sum(it["quantity"] for it in items)
-        result.append({
-            "id": r["id"],
-            "record_date": r["record_date"],
-            "created_at": r["created_at"],
-            "total_qty": qty_sum,
-            "items": [dict(it) for it in items if it["quantity"] > 0],
-        })
-    return jsonify({"record_count": len(result), "records": result})
+    return jsonify(debug_records(db))
 
 
 @app.route("/api/today")
@@ -600,46 +502,7 @@ def api_submit():
 def api_history():
     """Get all history records as JSON (optimised batch query)."""
     db = get_db()
-    records = list_history_records_service(db)
-
-    if not records:
-        return jsonify([])
-
-    # Batch-load all items in one query
-    record_ids = [r["id"] for r in records]
-    placeholders = ",".join("?" for _ in record_ids)
-    all_items = db.execute(
-        f"""SELECT record_id, category, spec, quantity
-            FROM record_items
-            WHERE record_id IN ({placeholders})
-            ORDER BY record_id, sort_order""",
-        record_ids,
-    ).fetchall()
-
-    items_by_record: dict[int, list[dict]] = {}
-    for item in all_items:
-        rid = item["record_id"]
-        if rid not in items_by_record:
-            items_by_record[rid] = []
-        items_by_record[rid].append(
-            {"category": item["category"], "spec": item["spec"], "quantity": item["quantity"]}
-        )
-
-    result = []
-    for row in records:
-        items_list = items_by_record.get(row["id"], [])
-        result.append(
-            {
-                "id": row["id"],
-                "store_name": row["store_name"],
-                "record_date": row["record_date"],
-                "created_at": row["created_at"],
-                "items": items_list,
-                "text": generate_output_text(row["store_name"], row["record_date"], items_list),
-            }
-        )
-
-    return jsonify(result)
+    return jsonify(build_history_api_records(db, generate_output_text))
 
 
 @app.route("/api/history/<int:record_id>", methods=["GET", "PUT", "DELETE"])
@@ -650,38 +513,15 @@ def api_history_detail(record_id: int):
 
     # --- GET: return detail ---
     if request.method == "GET":
-        row = db.execute(
-            "SELECT id, store_name, record_date, created_at FROM records WHERE id = ?",
-            (record_id,),
-        ).fetchone()
-
-        if not row:
+        detail = get_history_detail(db, record_id, _load_items_for_record, generate_output_text)
+        if not detail:
             return jsonify({"success": False, "error": "记录不存在"}), 404
-
-        items = _load_items_for_record(record_id)
-
-        return jsonify(
-            {
-                "success": True,
-                "id": row["id"],
-                "store_name": row["store_name"],
-                "record_date": row["record_date"],
-                "created_at": row["created_at"],
-                "items": items,
-                "text": generate_output_text(row["store_name"], row["record_date"], items),
-            }
-        )
+        return jsonify({"success": True, **detail})
 
     # --- DELETE: remove record and its items ---
     if request.method == "DELETE":
-        row = db.execute("SELECT id FROM records WHERE id = ?", (record_id,)).fetchone()
-        if not row:
+        if not delete_history_record(db, record_id):
             return jsonify({"success": False, "error": "记录不存在"}), 404
-
-        db.execute("DELETE FROM record_items WHERE record_id = ?", (record_id,))
-        db.execute("DELETE FROM records WHERE id = ?", (record_id,))
-        db.commit()
-
         return jsonify({"success": True})
 
     # --- PUT: update record (batch edit) ---
@@ -689,59 +529,10 @@ def api_history_detail(record_id: int):
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"success": False, "error": "无效的请求数据"}), 400
-
-        row = db.execute("SELECT id FROM records WHERE id = ?", (record_id,)).fetchone()
-        if not row:
-            return jsonify({"success": False, "error": "记录不存在"}), 404
-
-        # Update store_name if provided
-        if "store_name" in data:
-            db.execute(
-                "UPDATE records SET store_name = ? WHERE id = ?",
-                (data["store_name"], record_id),
-            )
-
-        # Update record_date if provided
-        if "record_date" in data:
-            db.execute(
-                "UPDATE records SET record_date = ? WHERE id = ?",
-                (data["record_date"], record_id),
-            )
-
-        # Update items if provided
-        if "items" in data:
-            for item in data["items"]:
-                db.execute(
-                    """UPDATE record_items
-                       SET quantity = ?
-                       WHERE record_id = ? AND category = ? AND spec = ?""",
-                    (
-                        max(0, min(999, int(item.get("quantity", 0)))),
-                        record_id,
-                        item["category"],
-                        item["spec"],
-                    ),
-                )
-
-        db.commit()
-
-        # Return updated record
-        items = _load_items_for_record(record_id)
-        row2 = db.execute(
-            "SELECT id, store_name, record_date, created_at FROM records WHERE id = ?",
-            (record_id,),
-        ).fetchone()
-
-        return jsonify(
-            {
-                "success": True,
-                "id": row2["id"],
-                "store_name": row2["store_name"],
-                "record_date": row2["record_date"],
-                "items": items,
-                "text": generate_output_text(row2["store_name"], row2["record_date"], items),
-            }
-        )
+        updated, status = update_history_record(db, record_id, data, _load_items_for_record, generate_output_text)
+        if not updated:
+            return jsonify({"success": False, "error": "记录不存在"}), status
+        return jsonify(updated)
 
     # Should not reach here
     return jsonify({"success": False, "error": "不支持的请求方法"}), 405
@@ -751,18 +542,11 @@ def api_history_detail(record_id: int):
 def api_history_text(record_id: int):
     """Re-generate text for a specific record (for one-tap copy)."""
     db = get_db()
-    row = db.execute(
-        "SELECT store_name, record_date FROM records WHERE id = ?",
-        (record_id,),
-    ).fetchone()
-
-    if not row:
+    detail = get_history_detail(db, record_id, _load_items_for_record, generate_output_text)
+    if not detail:
         return jsonify({"success": False, "error": "记录不存在"}), 404
 
-    items = _load_items_for_record(record_id)
-    text = generate_output_text(row["store_name"], row["record_date"], items)
-
-    return jsonify({"success": True, "text": text})
+    return jsonify({"success": True, "text": detail["text"]})
 
 
 # ==========================================

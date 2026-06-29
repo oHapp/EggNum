@@ -1,5 +1,5 @@
 /**
- * 鸡蛋库存登记助手 — 首页逻辑 v1.3.12
+ * 鸡蛋库存登记助手 — 首页逻辑 v1.3.13
  */
 var todayRecordId = null;
 var autoSaveBusy = false;

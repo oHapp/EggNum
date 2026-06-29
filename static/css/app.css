@@ -1074,9 +1074,45 @@ button, input, textarea, .qty-display, .tab-btn, .category-group__header, .histo
   font-size: 14px;
 }
 
+.att-entry--editable {
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.att-entry__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
 .att-entry__time { color: var(--color-text); font-weight: 500; }
 .att-entry__hours { color: var(--color-primary); font-weight: 600; font-size: 13px; }
-.att-entry__note { color: #999; font-size: 12px; margin-left: auto; }
+.att-entry__note {
+  color: #999;
+  font-size: 12px;
+  margin-left: auto;
+  overflow-wrap: anywhere;
+}
+
+.att-entry__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.att-entry__edit {
+  background: #f1f8e9;
+  border: 1px solid #c5e1a5;
+  border-radius: 6px;
+  color: var(--color-primary-dark);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
 .att-entry__del {
   background: none;
   border: none;
@@ -1086,6 +1122,59 @@ button, input, textarea, .qty-display, .tab-btn, .category-group__header, .histo
   padding: 2px 4px;
 }
 .att-entry__del:active { color: var(--color-danger); }
+
+.att-entry-editor {
+  width: 100%;
+  grid-template-columns: 1fr 1fr auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0 4px;
+}
+
+.att-entry-editor input {
+  min-width: 0;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.att-edit-date,
+.att-edit-note {
+  grid-column: 1 / -1;
+}
+
+.att-edit-sep {
+  color: #999;
+  font-size: 12px;
+}
+
+.att-edit-hours {
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.att-edit-save,
+.att-edit-cancel {
+  border-radius: 6px;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.att-edit-save {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: #fff;
+}
+
+.att-edit-cancel {
+  background: #fff;
+  border: 1px solid #ddd;
+  color: #777;
+}
 
 .att-empty {
   text-align: center;

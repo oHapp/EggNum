@@ -1,5 +1,5 @@
 /**
- * 鸡蛋库存登记助手 — 首页逻辑 v1.3.10
+ * 鸡蛋库存登记助手 — 首页逻辑 v1.3.12
  */
 var todayRecordId = null;
 var autoSaveBusy = false;
@@ -118,13 +118,16 @@ function initDatePicker() {
     if (input.value) {
       var today = localDateStr();
       if (input.value === today) {
-        localStorage.removeItem('eggnum_dev_date');
+        clearDateOverride();
       } else {
-        localStorage.setItem('eggnum_dev_date', input.value);
+        setDateOverride(input.value);
       }
     } else {
-      localStorage.removeItem('eggnum_dev_date');
+      clearDateOverride();
     }
+    todayRecordId = null;
+    lastSaved = {};
+    saveGeneration = {};
     updateDateDisplay();
     pageReady = false;
     autoLoadToday();
@@ -136,7 +139,10 @@ function initDatePicker() {
   if (resetBtn) {
     resetBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      localStorage.removeItem('eggnum_dev_date');
+      clearDateOverride();
+      todayRecordId = null;
+      lastSaved = {};
+      saveGeneration = {};
       updateDateDisplay();
       pageReady = false;
       autoLoadToday();
@@ -152,11 +158,25 @@ function getDateStr() {
     var ov = localStorage.getItem('eggnum_dev_date');
     if (ov) {
       var today = localDateStr();
-      if (ov === today) { localStorage.removeItem('eggnum_dev_date'); return today; }
+      var setOn = localStorage.getItem('eggnum_dev_date_set_on');
+      if (!setOn || setOn !== today || ov === today) {
+        clearDateOverride();
+        return today;
+      }
       return ov;
     }
   } catch(e) {}
   return localDateStr();
+}
+
+function setDateOverride(value) {
+  localStorage.setItem('eggnum_dev_date', value);
+  localStorage.setItem('eggnum_dev_date_set_on', localDateStr());
+}
+
+function clearDateOverride() {
+  localStorage.removeItem('eggnum_dev_date');
+  localStorage.removeItem('eggnum_dev_date_set_on');
 }
 
 function localDateStr(date) {
@@ -174,7 +194,10 @@ async function autoLoadToday() {
     var data = await resp.json();
 
     if (!data.found) {
+      todayRecordId = null;
       resetAllToZero();
+      snapshotValues();
+      saveGeneration = {};
       showAutoLoadBar('📋 今日暂无记录', false);
       pageReady = true;
       updateReportTotals();
@@ -435,7 +458,7 @@ function submitToBackend() {
       changed.push(rows[i]);
     }
   }
-  if (changed.length > 0 && changed.length < rows.length) {
+  if (todayRecordId && changed.length > 0 && changed.length < rows.length) {
     body.items = changed;
     body.merge = true;  // tell server to merge, not replace
   }

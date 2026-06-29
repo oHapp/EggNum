@@ -1,3 +1,21 @@
+﻿# v1.3.14 — 服务层重构 + 回归安全网
+
+> 2026-06-30
+
+---
+
+## 代码结构
+
+- 抽出 `config.py`、`db.py`、`services/attendance.py`、`services/records.py`，降低 `app.py` 的业务逻辑体积
+- 出库历史、留存记录、今日记录、调试记录和考勤逻辑逐步收口到 service 层
+- 新增 `scripts/inspect_db.py`，方便排查服务器 SQLite 数据和缺失日期
+
+## 回归保护
+
+- 新增 `tests/test_regressions.py`，覆盖跨日期出库保护、考勤历史编辑、留存负数保护、今日记录接口和留存列表接口
+- 正式版本更新到 `v1.3.14`，刷新 Docker/PWA 静态资源版本
+
+---
 # v1.3.13 — 考勤历史编辑
 
 > 2026-06-29

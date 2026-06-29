@@ -97,4 +97,5 @@ python scripts/inspect_db.py /data/eggnum.db --from 2026-06-25 --to 2026-06-29
 - `config.py`：版本号、产品模板、默认店名、Flask 配置
 - `db.py`：SQLite 连接、关闭、建表、轻量迁移
 - `services/attendance.py`：考勤增删改查、历史分组、导出查询
+- `services/records.py`：出库保存、历史查询、留存联动、文本生成
 - `app.py`：暂时保留路由和业务流程，后续再拆 services/routes

@@ -30,7 +30,7 @@ function renderAttendanceHistory(groups) {
   }
 
   var html = '';
-  groups.forEach(function(group) {
+  groups.forEach(function(group, index) {
     html += '<div class="att-day">' +
       '<div class="att-day__head">' +
         '<span>' + escapeHtml(group.date) + '</span>' +
@@ -42,10 +42,58 @@ function renderAttendanceHistory(groups) {
     });
 
     html += '</div>';
+
+    if (index < groups.length - 1) {
+      html += renderMissingAttendanceNotice(group.date, groups[index + 1].date);
+    }
   });
 
   el.innerHTML = html;
   bindAttendanceHistoryActions();
+}
+
+function renderMissingAttendanceNotice(laterDate, olderDate) {
+  var missing = missingDateRange(laterDate, olderDate);
+  if (!missing) return '';
+  return '<div class="att-missing" aria-label="没有打卡记录提醒">' +
+    escapeHtml(missing) +
+  '</div>';
+}
+
+function missingDateRange(laterDate, olderDate) {
+  var later = parseLocalDate(laterDate);
+  var older = parseLocalDate(olderDate);
+  if (!later || !older) return '';
+
+  var dayMs = 24 * 60 * 60 * 1000;
+  var gapDays = Math.round((later - older) / dayMs) - 1;
+  if (gapDays <= 0) return '';
+
+  var start = new Date(older.getTime() + dayMs);
+  var end = new Date(later.getTime() - dayMs);
+  var text = formatMonthDay(start);
+  if (gapDays > 1) {
+    text += ' - ' + formatMonthDay(end);
+  }
+  text += ' 没有打卡记录';
+  if (gapDays > 2) {
+    text += '，共 ' + gapDays + ' 天';
+  }
+  return text;
+}
+
+function parseLocalDate(value) {
+  var parts = String(value || '').split('-');
+  if (parts.length !== 3) return null;
+  var y = parseInt(parts[0], 10);
+  var m = parseInt(parts[1], 10);
+  var d = parseInt(parts[2], 10);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function formatMonthDay(value) {
+  return (value.getMonth() + 1) + '月' + value.getDate() + '日';
 }
 
 function renderAttendanceEntry(entry) {
@@ -205,7 +253,7 @@ function updateEditorHours(editor) {
 function calcAttendanceHours(start, end) {
   var sm = timeToMinutes(start);
   var em = timeToMinutes(end);
-  if (em <= sm) em += 1440;
+  if (em < sm) em += 1440;
   return Math.round((em - sm) / 6) / 10;
 }
 

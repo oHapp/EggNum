@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 
 PRESET_TEMPLATES: dict[str, list[int]] = {
@@ -14,7 +14,7 @@ PRESET_TEMPLATES: dict[str, list[int]] = {
 }
 
 DEFAULT_STORE_NAME = "鹏泰(大福店)"
-APP_VERSION = os.environ.get("APP_VERSION", "v1.3.14")
+APP_VERSION = os.environ.get("APP_VERSION", "v1.3.15")
 
 
 def init_app_config(app) -> None:

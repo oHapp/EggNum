@@ -1,6 +1,12 @@
 from collections import OrderedDict
 
 
+def _normalized_hours(time_start: str, time_end: str, hours) -> float:
+    if time_start and time_end and time_start == time_end:
+        return 0.0
+    return float(hours or 0)
+
+
 def list_entries(db, days: int | None = None, date_from: str | None = None, date_to: str | None = None):
     """List attendance rows using the same filters as the public API."""
     if date_from and date_to:
@@ -23,7 +29,7 @@ def create_entry(db, data: dict) -> int:
     record_date = data.get("record_date")
     time_start = data.get("time_start", "")
     time_end = data.get("time_end", "")
-    hours = float(data.get("hours", 0))
+    hours = _normalized_hours(time_start, time_end, data.get("hours", 0))
     note = data.get("note", "")
 
     cursor = db.execute(
@@ -54,7 +60,11 @@ def update_entry(db, entry_id: int, data: dict) -> bool:
             updates.append(f"{field} = ?")
             value = data[field]
             if field == "hours":
-                value = float(value)
+                value = _normalized_hours(
+                    data.get("time_start", ""),
+                    data.get("time_end", ""),
+                    value,
+                )
             params.append(value)
 
     if not updates:

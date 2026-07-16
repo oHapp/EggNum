@@ -1066,6 +1066,17 @@ button, input, textarea, .qty-display, .tab-btn, .category-group__header, .histo
   color: var(--color-primary);
 }
 
+.att-missing {
+  margin: 6px 2px;
+  padding: 8px 12px;
+  border: 1px dashed #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+}
+
 .att-entry {
   display: flex;
   align-items: center;

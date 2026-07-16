@@ -1,6 +1,6 @@
 ﻿# 鸡蛋库存登记助手 — 功能说明
 
-> v1.3.14 | Flask + SQLite + Vanilla JS + PWA
+> v1.3.15 | Flask + SQLite + Vanilla JS + PWA
 
 ---
 
@@ -490,9 +490,9 @@ docker compose up -d --build
 ### 版本号规则
 
 ```
-main:  v1.3.14      (正式版)
-dev:   v1.3.15-dev  (开发中)
-tag:   v1.3.14
+main:  v1.3.15      (正式版)
+dev:   v1.3.16-dev  (开发中)
+tag:   v1.3.15
 ```
 
 每发布一次，第三位 +1。

@@ -271,6 +271,7 @@ def api_attendance_export():
         ws = wb.active
         # Only clear values in data rows (2 to max_row), keep formatting
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            ws.row_dimensions[row[0].row].height = 15
             for cell in row:
                 cell.value = None
     else:
@@ -297,8 +298,13 @@ def api_attendance_export():
 
     for d in sorted(groups.keys()):
         seg_count = len(groups[d])
-        time_ranges = ", ".join(f"{r['time_start']}-{r['time_end']}" for r in groups[d])
         day_hours = sum(r["hours"] for r in groups[d])
+        is_rest_day = day_hours == 0 and all(
+            r["time_start"] == r["time_end"] for r in groups[d]
+        )
+        time_ranges = "-" if is_rest_day else ", ".join(
+            f"{r['time_start']}-{r['time_end']}" for r in groups[d]
+        )
         notes = "、".join(r["note"] for r in groups[d] if r["note"])
         total_hours += day_hours
 
@@ -315,9 +321,8 @@ def api_attendance_export():
         c_hours.alignment = v_center
         c_note.alignment = v_center
 
-        # Multi-segment: increase row height
-        if seg_count > 1:
-            ws.row_dimensions[row_idx].height = 15 * seg_count
+        # Reset row height before applying the current day's segment count.
+        ws.row_dimensions[row_idx].height = 15 * max(seg_count, 1)
 
         row_idx += 1
 
@@ -327,6 +332,7 @@ def api_attendance_export():
     total_cell_hours = ws.cell(row=row_idx, column=3)
     total_cell_date.value = "合计"
     total_cell_hours.value = round(total_hours, 2)
+    ws.row_dimensions[row_idx].height = 15
 
     # If no template, bold the total row
     if not has_template:

@@ -99,6 +99,64 @@ class EggNumRegressionTests(unittest.TestCase):
         self.assertEqual(groups[0]["total"], 2.5)
         self.assertEqual(groups[0]["entries"][0]["note"], "fixed")
 
+    def test_attendance_export_resets_single_segment_row_height(self):
+        import io
+        import openpyxl
+
+        first = self.client.post("/api/attendance", json={
+            "record_date": "2026-06-29",
+            "time_start": "09:00",
+            "time_end": "11:00",
+            "hours": 2,
+            "note": "",
+        })
+        self.assertEqual(first.status_code, 200)
+
+        second = self.client.post("/api/attendance", json={
+            "record_date": "2026-06-29",
+            "time_start": "13:00",
+            "time_end": "15:00",
+            "hours": 2,
+            "note": "",
+        })
+        self.assertEqual(second.status_code, 200)
+
+        deleted = self.client.delete(f"/api/attendance/{second.json['id']}")
+        self.assertEqual(deleted.status_code, 200)
+
+        exported = self.client.get("/api/attendance/export?from=2026-06-29&to=2026-06-29")
+        self.assertEqual(exported.status_code, 200)
+
+        wb = openpyxl.load_workbook(io.BytesIO(exported.data))
+        ws = wb.active
+        self.assertEqual(ws.row_dimensions[2].height, 15)
+
+    def test_attendance_equal_start_end_is_zero_hours(self):
+        created = self.client.post("/api/attendance", json={
+            "record_date": "2026-06-29",
+            "time_start": "00:00",
+            "time_end": "00:00",
+            "hours": 24,
+            "note": "休息",
+        })
+        self.assertEqual(created.status_code, 200)
+
+        groups = self.client.get("/api/attendance-history").json["groups"]
+        self.assertEqual(groups[0]["total"], 0)
+        self.assertEqual(groups[0]["entries"][0]["hours"], 0)
+        self.assertEqual(groups[0]["entries"][0]["note"], "休息")
+
+        import io
+        import openpyxl
+
+        exported = self.client.get("/api/attendance/export?from=2026-06-29&to=2026-06-29")
+        self.assertEqual(exported.status_code, 200)
+
+        wb = openpyxl.load_workbook(io.BytesIO(exported.data))
+        ws = wb.active
+        self.assertEqual(ws.cell(row=2, column=2).value, "-")
+        self.assertEqual(ws.cell(row=2, column=3).value, 0)
+
     def test_reserve_cannot_go_below_zero(self):
         response = self.client.post("/api/reserve", json={
             "category": "农家蛋",

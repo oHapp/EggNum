@@ -85,7 +85,7 @@ function localDateStr(d) { d = d || new Date(); return d.getFullYear()+'-'+Strin
 function calcHours(s, e) {
   var sm = parseInt(s.split(':')[0])*60 + parseInt(s.split(':')[1]);
   var em = parseInt(e.split(':')[0])*60 + parseInt(e.split(':')[1]);
-  if (em <= sm) em += 1440;
+  if (em < sm) em += 1440;
   return Math.round((em - sm) / 6) / 10;
 }
 
@@ -163,7 +163,7 @@ function updateSlotHours(slot) {
 
 // ── Quick leave ──
 function quickLeave() {
-  document.getElementById('att-note').value = '请假';
+  document.getElementById('att-note').value = '休息';
   var slotsDiv = document.getElementById('att-slots');
   slotsDiv.innerHTML = '';
   var div = document.createElement('div');
